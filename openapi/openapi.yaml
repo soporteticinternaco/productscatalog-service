@@ -1,0 +1,225 @@
+openapi: 3.0.0
+info:
+  title: Products Catalog API
+  version: 1.0.0
+paths:
+  /search:
+    get:
+      summary: Search products
+      parameters:
+        - in: query
+          name: q
+          schema:
+            type: string
+          required: false
+          description: Search query
+        - in: query
+          name: lang
+          schema:
+            type: string
+            enum: [ca,en,es,fr,gl,pt]
+            default: es
+          required: false
+          description: Language code to search in (defaults to 'es')
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+          required: false
+          description: Page number for pagination
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 10
+          required: false
+          description: Number of results per page
+        - in: query
+          name: supplier_id
+          schema:
+            type: string
+          required: false
+          description: supplier id
+        - in: query
+          name: ref
+          schema:
+            type: string
+          required: false
+          description: product ref
+        - in: query
+          name: ean
+          schema:
+            type: string
+          required: false
+          description: product ean
+        - in: query
+          name: level1Id
+          schema:
+            type: string
+          required: false
+          description: level1 category filter
+        - in: query
+          name: level2Id
+          schema:
+            type: string
+          required: false
+          description: level2 category filter
+        - in: query
+          name: level3Id
+          schema:
+            type: string
+          required: false
+          description: level3 category filter
+        - in: query
+          name: visibility
+          schema:
+            type: string
+          required: false
+          description: supplier visibility
+      responses:
+        '200':
+          description: List of matching products (full document in selected language)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ProductSearchResponse'
+  /search/categories-tree:
+    post:
+      summary: Get categories tree for suppliers
+      description: Returns a hierarchical tree of categories (level1 → level2 → level3) for the given supplier IDs, localized by the requested language.
+      tags:
+        - Categories
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                tenantId:
+                  type: string
+                  example: ELSABIO
+                supplierIds:
+                  type: array
+                  items:
+                    type: string
+                  example: ["supplier123", "supplier456"]
+                lang:
+                  type: string
+                  description: Language code (es, en, fr, pt, gl, ca)
+                  example: es
+      responses:
+        '200':
+          description: Hierarchical categories tree
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetCategoriesTreeResponse'
+components:
+  schemas:
+    CategoryNode:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Category identifier (level1, level2, or level3)
+          example: "level1-cat"
+        description:
+          type: string
+          description: Localized category description
+          example: "Categoría Nivel 1"
+        children:
+          type: array
+          items:
+            $ref: '#/components/schemas/CategoryNode'
+    GetCategoriesTreeResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/SupplierCategoriesTree'
+    GetCategoriesTreeRequest:
+      type: object
+      required:
+        - tenantId
+        - supplierIds
+        - lang
+      properties:
+        tenantId:
+          type: string
+          description: Tenant identifier
+          example: "ELSABIO"
+        supplierIds:
+          type: array
+          description: List of supplier IDs
+          items:
+            type: string
+          example: ["supplier123", "supplier456"]
+        lang:
+          type: string
+          description: Language code
+          enum: [ca, en, es, fr, gl, pt]
+          default: es
+    ProductSearchResult:
+      type: object
+      properties:
+        ref: { type: string }
+        ean: { type: string }
+        container_units: { type: number }
+        container_type: { type: string }
+        supplier_id: { type: string }
+        supplier_name: { type: string }
+        step: { type: integer, example: 1 }
+        description: { type: string }
+        short_description: { type: string }
+        main_picture_url: { type: string }
+        main_picture_thumb_url: { type: string }
+        level1: { type: string }
+        level2: { type: string }
+        level3: { type: string }
+        level1Name: { type: string }
+        level2Name: { type: string }
+        level3Name: { type: string }
+    ProductSearchResponse:
+      type: object
+      properties:
+        navigation:
+          type: object
+          properties:
+            total: { type: integer }
+            page: { type: integer }
+            limit: { type: integer }
+            firstPage:
+              type: string
+              format: uri
+            lastPage:
+              type: string
+              format: uri
+            previousPage:
+              type: string
+              format: uri
+              nullable: true
+            nextPage:
+              type: string
+              format: uri
+              nullable: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/ProductSearchResult'
+    SupplierCategoriesTree:
+      type: object
+      properties:
+        supplierId:
+          type: string
+        categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/CategoryNode'
