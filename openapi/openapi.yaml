@@ -100,20 +100,7 @@ paths:
         content:
           application/json:
             schema:
-              type: object
-              properties:
-                tenantId:
-                  type: string
-                  example: ELSABIO
-                supplierIds:
-                  type: array
-                  items:
-                    type: string
-                  example: ["supplier123", "supplier456"]
-                lang:
-                  type: string
-                  description: Language code (es, en, fr, pt, gl, ca)
-                  example: es
+              $ref: '#/components/schemas/GetCategoriesTreeRequest'
       responses:
         '200':
           description: Hierarchical categories tree
@@ -162,6 +149,9 @@ components:
           items:
             type: string
           example: ["supplier123", "supplier456"]
+        visibility:
+          type: integer
+          example: 0
         lang:
           type: string
           description: Language code
@@ -218,6 +208,8 @@ components:
       type: object
       properties:
         supplierId:
+          type: string
+        description:
           type: string
         categories:
           type: array

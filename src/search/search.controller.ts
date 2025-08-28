@@ -35,6 +35,14 @@ export class SearchController {
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 12) {
 
+      if (!page) {
+        page = 1;
+      }
+
+      if (!limit) {
+        limit = 12;
+      }
+
     const response = await this.searchService.search(q || '', lang || 'es', page, limit, {
       supplier_id, ref, ean, level1Id, level2Id, level3Id, visibility
     });
@@ -69,9 +77,9 @@ export class SearchController {
   async getCategoriesTree(
     @Body() body: GetCategoriesTreeRequest,
   ): Promise<GetCategoriesTreeResponse> {
-    const { tenantId, supplierIds, lang } = body;
+    const { tenantId, supplierIds, visibility, lang } = body;
 
-    const trees = await this.searchService.getCategoriesTree(tenantId, supplierIds, lang);
+    const trees = await this.searchService.getCategoriesTree(tenantId, supplierIds, visibility,lang);
     return { data: trees };
   }
 }
