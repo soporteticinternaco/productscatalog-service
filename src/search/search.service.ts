@@ -1,7 +1,12 @@
 import { Injectable } from "@nestjs/common";
 import { Client } from "@elastic/elasticsearch";
-import { ProductSearchFilters } from "./search.types";
-import { CategoryNode, ProductSearchResponse, ProductSearchResult, SupplierCategoriesTree } from "src/dto";
+import { CategoriesTreeAggregation, ProductSearchFilters, SupplierCat } from "./search.types";
+import {
+  CategoryNode,
+  ProductSearchResponse,
+  ProductSearchResult,
+  SupplierCategoriesTree,
+} from "src/dto";
 
 @Injectable()
 export class SearchService {
@@ -130,7 +135,7 @@ export class SearchService {
             },
           };
 
-    console.log("QUERY: " + JSON.stringify(body.query));
+    console.log("QUERY: ", JSON.stringify(body, null, 2));
 
     const from = (page - 1) * limit;
 
@@ -163,17 +168,17 @@ export class SearchService {
     const filterClauses: any[] = [];
 
     if (filters.supplier_id) {
-      filterClauses.push({ term: { supplier_id: filters.supplier_id } });
+      filterClauses.push({ term: { "supplier_id.keyword": filters.supplier_id } });
     }
     if (filters.ref) {
-      filterClauses.push({ term: { "ref.raw": filters.ref } });
+      filterClauses.push({ term: { "ref.keyword": filters.ref } });
     }
     if (filters.ean) {
       filterClauses.push({ term: { "ean.raw": filters.ean } });
     }
-    if (typeof filters.visibility === "number") {
+    if (typeof filters.visibility === "number" && filters.visibility) {
       filterClauses.push({
-        range: { visibility: { gte: filters.visibility } },
+        range: { supplier_visibility: { gte: filters.visibility } },
       });
     }
     if (filters.level1Id) {
@@ -214,81 +219,124 @@ export class SearchService {
 
   async getCategoriesTree(
     tenantId: string,
-    supplierIds: string[],
-    lang: string
+    visibility: number,
+    lang: string,
+    supplierIds?: string[]
   ): Promise<SupplierCategoriesTree[]> {
-    const index = "productscatalog-categories";
+    const index = "productscatalog-products";
 
-    const { hits } = await this.client.search({
+    const filters: Array<Record<string, any>> = [
+              { term: { "tenant_id.keyword": tenantId } },
+            ];
+
+    if (supplierIds) {
+      filters.push({ terms: { "supplier_id.keyword": supplierIds } });
+    }
+
+    if (visibility) {
+      filters.push({ range: { supplier_visibility: { "gte": visibility } } });
+    }
+
+    const { aggregations } = await this.client.search({
       index,
-      size: 10000,
-      query: {
-        bool: {
-          filter: [
-            { term: {tenant_id: tenantId } },
-            { terms: { supplier_id: supplierIds } },
-            { term: { disabled: false } },
-          ],
+      size: 0,
+      body: {
+        query: {
+          bool: {
+            filter: filters
+          },
+        },
+        aggs: {
+          suppliers: {
+            terms: { field: "supplier_id.keyword", size: 1000 },
+            aggs: {
+              supplier_name: {
+                top_hits: { _source: ["supplier_name"], size: 1 },
+              },
+              level1: {
+                terms: { field: "level1.keyword", size: 1000 },
+                aggs: {
+                  level1Name: {
+                    top_hits: { _source: [`level1Name.${lang}`], size: 1 },
+                  },
+                  level2: {
+                    terms: { field: "level2.keyword", size: 1000 },
+                    aggs: {
+                      level2Name: {
+                        top_hits: { _source: [`level2Name.${lang}`], size: 1 },
+                      },
+                      level3: {
+                        terms: { field: "level3.keyword", size: 1000 },
+                        aggs: {
+                          level3Name: {
+                            top_hits: {
+                              _source: [`level3Name.${lang}`],
+                              size: 1,
+                            },
+                          },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
         },
       },
-      _source: [
-        "supplier_id",
-        "level1",
-        "level2",
-        "level3",
-        `description.${lang}`,
-      ],
     });
 
-    const docs = hits.hits.map((hit: any) => hit._source);
+    return this.buildSupplierTree((aggregations as CategoriesTreeAggregation).suppliers.buckets || [], lang);
+  }
+  
 
-    // Group by supplier
-    const suppliers: Record<string, any> = {};
-
-    docs.forEach((doc) => {
-      const supplierId = doc.supplier_id;
-      if (!suppliers[supplierId]) {
-        suppliers[supplierId] = {};
-      }
-
-      const tree = suppliers[supplierId];
-      const l1 = doc.level1;
-      const l2 = doc.level2;
-      const l3 = doc.level3;
-      const desc = doc.description?.[lang] || "";
-
-      if (!tree[l1]) {
-        tree[l1] = { id: l1, description: desc, children: {} };
-      }
-
-      if (l2) {
-        if (!tree[l1].children[l2]) {
-          tree[l1].children[l2] = { id: l2, description: desc, children: {} };
-        }
-
-        if (l3) {
-          if (!tree[l1].children[l2].children[l3]) {
-            tree[l1].children[l2].children[l3] = {
-              id: l3,
-              description: desc,
-              children: {},
-            };
-          }
-        }
-      }
-    });
-
-    const formatTree = (node: any): CategoryNode[] => {
-      return Object.values(node).map((n: any) => ({
-        id: n.id,
-        description: n.description,
-        children: formatTree(n.children || {}),
-      }));
-    };
-
-    return Object.entries(suppliers).map(([supplierId, tree]) => ({
-      supplierId,
-      categories: formatTree(tree) as CategoryNode[],
-    }));
+  buildSupplierTree(
+    suppliersCats: SupplierCat[],
+    lang: string
+  ): SupplierCategoriesTree[] {
+    return suppliersCats
+      .sort((s1, s2) =>
+        s1.supplier_name.hits.hits[0]._source.supplier_name.localeCompare(
+          s2.supplier_name.hits.hits[0]._source.supplier_name
+        )
+      )
+      .map((s) => {
+        return {
+          supplierId: s.key,
+          description: s.supplier_name.hits.hits[0]._source.supplier_name,
+          categories: (s.level1.buckets || [])
+            .map((l1) => {
+              const l1Name =
+                l1.level1Name.hits.hits[0]?._source.level1Name[lang] || "";
+              return {
+                id: l1.key,
+                description: l1Name,
+                children: (l1.level2.buckets || [])
+                  .map((l2) => {
+                    const l2Name =
+                      l2.level2Name.hits.hits[0]?._source.level2Name[lang] ||
+                      "";
+                    return {
+                      id: l2.key,
+                      description: l2Name,
+                      children: (l2.level3.buckets || [])
+                        .map((l3) => {
+                          const l3Name =
+                            l3.level3Name.hits.hits[0]?._source.level3Name[
+                              lang
+                            ] || "";
+                          return { id: l3.key, description: l3Name };
+                        })
+                        .sort((a, b) =>
+                          a.description.localeCompare(b.description)
+                        ),
+                    };
+                  })
+                  .sort((a, b) => a.description.localeCompare(b.description)),
+              };
+            })
+            .sort((a, b) => a.description.localeCompare(b.description)),
+        };
+      });
   }
 }

@@ -7,6 +7,7 @@ import type { CategoryNode } from './CategoryNode';
 
 export type SupplierCategoriesTree = {
     supplierId?: string;
+    description?: string;
     categories?: Array<CategoryNode>;
 };
 

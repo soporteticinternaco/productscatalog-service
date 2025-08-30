@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { GetCategoriesTreeRequest } from '../models/GetCategoriesTreeRequest';
 import type { GetCategoriesTreeResponse } from '../models/GetCategoriesTreeResponse';
 
 import type { CancelablePromise } from '../core/CancelablePromise';
@@ -18,14 +19,7 @@ export class CategoriesService {
      * @throws ApiError
      */
     public static postSearchCategoriesTree(
-        requestBody: {
-            tenantId?: string;
-            supplierIds?: Array<string>;
-            /**
-             * Language code (es, en, fr, pt, gl, ca)
-             */
-            lang?: string;
-        },
+        requestBody: GetCategoriesTreeRequest,
     ): CancelablePromise<GetCategoriesTreeResponse> {
         return __request(OpenAPI, {
             method: 'POST',

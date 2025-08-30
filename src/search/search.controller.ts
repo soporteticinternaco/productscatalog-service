@@ -35,6 +35,14 @@ export class SearchController {
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 12) {
 
+      if (!page) {
+        page = 1;
+      }
+
+      if (!limit) {
+        limit = 12;
+      }
+
     const response = await this.searchService.search(q || '', lang || 'es', page, limit, {
       supplier_id, ref, ean, level1Id, level2Id, level3Id, visibility
     });
@@ -64,14 +72,31 @@ export class SearchController {
     return response;
   }
 
-  @Post('categories-tree')
+  @Get('categories-tree')
+  @ApiQuery({ name: 'tenantId', required: true })
+  @ApiQuery({ name: 'lang', required: false, enum: ['ca','en','es','fr','gl','pt'] })
+  @ApiQuery({ name: 'supplierIds', type: String, required: false, description: 'Supplier Ids', example: '' })
+  @ApiQuery({ name: 'level1Id', type: String, required: false, description: 'Level1 cat Id', example: '06' })
+  @ApiQuery({ name: 'level2Id', type: String, required: false, description: 'Level2 cat Id', example: '0604' })
+  @ApiQuery({ name: 'level3Id', type: String, required: false, description: 'Level3 cat Id', example: '060406' })
+  @ApiQuery({ name: 'visibility', type: Number, required: false, description: 'Client visibility', example: 0 })
   @HttpCode(200)
   async getCategoriesTree(
-    @Body() body: GetCategoriesTreeRequest,
+    @Req() req: Request, 
+    @Query('tenantId') tenantId: string,
+    @Query('lang') lang?: string,
+    @Query('supplierIds') supplierIds?: string[],
+    @Query('level1Id') level1Id?: string,
+    @Query('level2Id') level2Id?: string,
+    @Query('level3Id') level3Id?: string,
+    @Query('visibility') visibility: number = 0,
   ): Promise<GetCategoriesTreeResponse> {
-    const { tenantId, supplierIds, lang } = body;
-
-    const trees = await this.searchService.getCategoriesTree(tenantId, supplierIds, lang);
+    
+    const trees = await this.searchService.getCategoriesTree(
+      tenantId, 
+      visibility || 0, 
+      lang || "es", 
+      supplierIds);
     return { data: trees };
   }
 }
