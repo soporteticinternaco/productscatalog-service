@@ -11,7 +11,7 @@ export type GetCategoriesTreeRequest = {
     /**
      * List of supplier IDs
      */
-    supplierIds: Array<string>;
+    supplierIds?: Array<string>;
     visibility?: number;
     /**
      * Language code

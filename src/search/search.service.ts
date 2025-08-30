@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { Client } from "@elastic/elasticsearch";
-import { ProductSearchFilters } from "./search.types";
+import { CategoriesTreeAggregation, ProductSearchFilters, SupplierCat } from "./search.types";
 import {
   CategoryNode,
   ProductSearchResponse,
@@ -135,6 +135,8 @@ export class SearchService {
             },
           };
 
+    console.log("QUERY: ", JSON.stringify(body, null, 2));
+
     const from = (page - 1) * limit;
 
     const result = await this.client.search({
@@ -166,10 +168,10 @@ export class SearchService {
     const filterClauses: any[] = [];
 
     if (filters.supplier_id) {
-      filterClauses.push({ term: { supplier_id: filters.supplier_id } });
+      filterClauses.push({ term: { "supplier_id.keyword": filters.supplier_id } });
     }
     if (filters.ref) {
-      filterClauses.push({ term: { "ref.raw": filters.ref } });
+      filterClauses.push({ term: { "ref.keyword": filters.ref } });
     }
     if (filters.ean) {
       filterClauses.push({ term: { "ean.raw": filters.ean } });
@@ -217,13 +219,13 @@ export class SearchService {
 
   async getCategoriesTree(
     tenantId: string,
-    supplierIds: string[],
     visibility: number,
-    lang: string
+    lang: string,
+    supplierIds?: string[]
   ): Promise<SupplierCategoriesTree[]> {
     const index = "productscatalog-products";
 
-    const filters = [
+    const filters: Array<Record<string, any>> = [
               { term: { "tenant_id.keyword": tenantId } },
             ];
 
@@ -232,7 +234,7 @@ export class SearchService {
     }
 
     if (visibility) {
-      filters.push({ term: { supplier_visibility: visibility } });
+      filters.push({ range: { supplier_visibility: { "gte": visibility } } });
     }
 
     const { aggregations } = await this.client.search({
@@ -284,11 +286,12 @@ export class SearchService {
       },
     });
 
-    return this.buildSupplierTree(aggregations.suppliers.buckets || [], lang);
+    return this.buildSupplierTree((aggregations as CategoriesTreeAggregation).suppliers.buckets || [], lang);
   }
+  
 
   buildSupplierTree(
-    suppliersCats: any,
+    suppliersCats: SupplierCat[],
     lang: string
   ): SupplierCategoriesTree[] {
     return suppliersCats
