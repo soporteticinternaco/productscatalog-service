@@ -80,6 +80,14 @@ paths:
             type: string
           required: false
           description: supplier visibility
+        - in: query
+          name: ids
+          schema:
+            type: array
+            items:
+              type: string
+          required: false
+          description: product ids
       responses:
         '200':
           description: List of matching products (full document in selected language)
@@ -159,32 +167,67 @@ components:
     ProductSearchResult:
       type: object
       properties:
-        ref: { type: string }
-        ean: { type: string }
-        container_units: { type: number }
-        container_type: { type: string }
-        supplier_id: { type: string }
-        supplier_name: { type: string }
-        step: { type: integer, example: 1 }
-        description: { type: string }
-        short_description: { type: string }
-        main_picture_url: { type: string }
-        main_picture_thumb_url: { type: string }
-        level1: { type: string }
-        level2: { type: string }
-        level3: { type: string }
-        level1Name: { type: string }
-        level2Name: { type: string }
-        level3Name: { type: string }
+        id:
+          type: string
+        ref: 
+          type: string
+        ean:
+          type: string
+        container_units:
+          type: string
+        container_type:
+          type: string
+        supplier_id:
+          type: string
+        supplier_name:
+          type: string
+        step:
+          type: integer
+          example: 1
+        description:
+          type: string
+        short_description:
+          type: string
+        main_picture_url:
+          type: string
+        main_picture_thumb_url:
+          type: string
+        level1: 
+          type: string
+        level2:
+          type: string
+        level3:
+          type: string
+        level1Name:
+          type: string
+        level2Name:
+          type: string
+        level3Name:
+          type: string
+        discount1:
+          type: number
+        discount2:
+          type: number
+        net_price:
+          type: number
+        sale_price:
+          type: number
+        net_price_with_margin:
+          type: number
+        vat_amount:
+          type: number
     ProductSearchResponse:
       type: object
       properties:
         navigation:
           type: object
           properties:
-            total: { type: integer }
-            page: { type: integer }
-            limit: { type: integer }
+            total:
+              type: integer
+            page:
+              type: integer
+            limit:
+              type: integer
             firstPage:
               type: string
               format: uri

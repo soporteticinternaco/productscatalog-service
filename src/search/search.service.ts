@@ -1,6 +1,10 @@
 import { Injectable } from "@nestjs/common";
 import { Client } from "@elastic/elasticsearch";
-import { CategoriesTreeAggregation, ProductSearchFilters, SupplierCat } from "./search.types";
+import {
+  CategoriesTreeAggregation,
+  ProductSearchFilters,
+  SupplierCat,
+} from "./search.types";
 import {
   CategoryNode,
   ProductSearchResponse,
@@ -14,11 +18,9 @@ export class SearchService {
 
   constructor() {
     this.client = new Client({
-      node: process.env.ELASTICSEARCH_NODE || "http://192.168.4.112:9200",
-      auth: {
-        username: process.env.ELASTICSEARCH_USER || "productscatalog",
-        password: process.env.ELASTICSEARCH_PASSWORD || "123456",
-      },
+      node:
+        process.env.ELASTIC_SEARCH_URL ||
+        "http://productscatalog:123456@192.168.4.112:9200",
       // If using self-signed certs
       tls: {
         rejectUnauthorized: false,
@@ -36,11 +38,13 @@ export class SearchService {
     lang: string,
     page: number = 1,
     limit: number = 10,
-    filters: ProductSearchFilters = { deleted: false }
+    filters: ProductSearchFilters = { deleted: false },
+    sortBy?: string
   ): Promise<ProductSearchResponse> {
     const index = "productscatalog-products";
 
     const response_fields = [
+      "id",
       "ref",
       "ean",
       "supplier_id",
@@ -60,84 +64,227 @@ export class SearchService {
       `level1Name.${lang}`,
       `level2Name.${lang}`,
       `level3Name.${lang}`,
+      "discount1",
+      "discount2",
+      "net_price",
+      "sale_price",
+      "net_price_with_margin",
+      "vat_amount"
     ];
 
-    const body =
+    const body: Record<string, any> =
       q && q.length > 0
         ? {
-            _source: response_fields,
-            query: {
-              bool: {
-                should: [
-                  {
-                    term: {
-                      "ref.raw": {
-                        value: q,
-                        boost: 7,
-                      },
+          _source: response_fields,
+          query: {
+            bool: {
+              should: [
+                {
+                  multi_match: {
+                    query: q,
+                    type: "cross_fields",
+                    fields: [
+                      `description.${lang}`,
+                      `short_description.${lang}`,
+                      "supplier_name",
+                      `level3Name.${lang}`,
+                    ],
+                    operator: "and",
+                    boost: 25,
+                  },
+                },
+                {
+                  term: {
+                    "ref.keyword": {
+                      value: q,
+                      boost: 20,
                     },
                   },
-                  {
-                    term: {
-                      "ean.raw": {
-                        value: q,
-                        boost: 7,
-                      },
-                    },
-                  },
-                  {
-                    match: {
-                      "supplier_name.autocomplete": {
-                        query: q,
-                        boost: 5,
-                      },
-                    },
-                  },
-                  {
-                    match: {
-                      [`description.${lang}`]: {
-                        query: q,
-                        boost: 5,
-                      },
-                    },
-                  },
-                  {
-                    match: {
-                      [`short_description.${lang}`]: {
-                        query: q,
-                        boost: 2,
-                      },
-                    },
-                  },
-                  {
-                    multi_match: {
+                },
+                {
+                  match: {
+                    ref: {
                       query: q,
-                      fields: [
-                        `level1Name.${lang}`,
-                        `level2Name.${lang}`,
-                        `level3Name.${lang}`,
-                      ],
-                      type: "phrase_prefix",
-                      boost: 1,
+                      boost: 10,
                     },
                   },
-                ],
-                minimum_should_match: 1,
-                filter: this._buildFilters(filters),
-              },
+                },
+                {
+                  term: {
+                    "ean.keyword": {
+                      value: q,
+                      boost: 20,
+                    },
+                  },
+                },
+                {
+                  match: {
+                    ean: {
+                      query: q,
+                      boost: 10,
+                    },
+                  },
+                },
+                {
+                  match: {
+                    supplier_name: {
+                      query: q,
+                      boost: 20,
+                      operator: "or",
+                    },
+                  },
+                },
+                {
+                  match: {
+                    supplier_name: {
+                      query: q,
+                      fuzziness: "AUTO",
+                      boost: 8,
+                      operator: "or",
+                    },
+                  },
+                },
+                {
+                  match_phrase_prefix: {
+                    [`description.${lang}`]: {
+                      query: q,
+                      boost: 40,
+                    },
+                  },
+                },
+                /*         {
+                  bool: {
+                    should: [
+                      {
+                        prefix: {
+                          [`description.${lang}`]: {
+                            value: "hacha",
+                            boost: 120,
+                          },
+                        },
+                      },
+                      {
+                        prefix: {
+                          [`description.${lang}`]: {
+                            value: "labrador",
+                            boost: 100,
+                          },
+                        },
+                      },
+                    ],
+                  },
+                },*/
+                {
+                  match: {
+                    [`description.${lang}`]: {
+                      query: q,
+                      operator: "or",
+                      minimum_should_match: 1,
+                      boost: 15,
+                    },
+                  },
+                },
+                {
+                  match: {
+                    [`description.${lang}`]: {
+                      query: q,
+                      fuzziness: "AUTO",
+                      boost: 4,
+                    },
+                  },
+                },
+                {
+                  match: {
+                    [`short_description.${lang}`]: {
+                      query: q,
+                      boost: 6,
+                    },
+                  },
+                },
+                {
+                  match: {
+                    [`short_description.${lang}`]: {
+                      query: q,
+                      fuzziness: "AUTO",
+                      boost: 3,
+                    },
+                  },
+                },
+                {
+                  multi_match: {
+                    query: q,
+                    fields: [`level3Name.${lang}`],
+                    boost: 4,
+                  },
+                },
+                {
+                  multi_match: {
+                    query: q,
+                    fields: [`level3Name.${lang}`],
+                    fuzziness: "AUTO",
+                    boost: 2,
+                  },
+                },
+                {
+                  multi_match: {
+                    query: q,
+                    fields: [`level1Name.${lang}`, `level2Name.${lang}`],
+                    boost: 3,
+                  },
+                },
+                {
+                  multi_match: {
+                    query: q,
+                    fields: [`level1Name.${lang}`, `level2Name.${lang}`],
+                    fuzziness: "AUTO",
+                    boost: 2,
+                  },
+                },
+                {
+                  multi_match: {
+                    query: q,
+                    fields: [
+                      `description.${lang}.phonetic`,
+                      `short_description.${lang}.phonetic`,
+                      `level3Name.${lang}.phonetic`,
+                    ],
+                    boost: 4,
+                  },
+                },
+                {
+                  multi_match: {
+                    query: q,
+                    fields: [
+                      `level1Name.${lang}.phonetic`,
+                      `level2Name.${lang}.phonetic`,
+                    ],
+                    boost: 2,
+                  },
+                },
+              ],
+              minimum_should_match: 1,
+              filter: this._buildFilters(filters),
             },
-          }
+          },
+        }
         : {
-            query: {
-              bool: {
-                filter: this._buildFilters(filters),
-              },
+          _source: response_fields,
+          query: {
+            bool: {
+              filter: this._buildFilters(filters),
             },
-          };
+          },
+        };
 
-    console.log("QUERY: ", JSON.stringify(body, null, 2));
+    const sortClause = this._buildSort(lang, sortBy);
 
-    const from = (page - 1) * limit;
+    if (sortClause) {
+      body.sort = sortClause;
+    }
+
+    console.log("BODY: ", JSON.stringify(body, null, 2));
+
+    const from = page * limit;
 
     const result = await this.client.search({
       index,
@@ -145,6 +292,8 @@ export class SearchService {
       size: limit,
       ...body,
     });
+
+    //console.log("RESPONSE: ", JSON.stringify(result, null, 2));
 
     return {
       navigation: {
@@ -163,18 +312,27 @@ export class SearchService {
   }
 
   private _buildFilters(filters?: ProductSearchFilters) {
+    //console.log("FILTERS: ", JSON.stringify(filters, null, 2));
+
     if (!filters) return [];
 
-    const filterClauses: any[] = [];
+    const filterClauses: any[] = [{ term: { deleted: false } }];
 
-    if (filters.supplier_id) {
-      filterClauses.push({ term: { "supplier_id.keyword": filters.supplier_id } });
+    if (filters.id) {
+      filterClauses.push({ terms: { "id.keyword": filters.id.split(",") } });
     }
+
+    if (filters.supplierId) {
+      filterClauses.push({
+        term: { "supplier_id.keyword": filters.supplierId },
+      });
+    }
+
     if (filters.ref) {
-      filterClauses.push({ term: { "ref.keyword": filters.ref } });
+      filterClauses.push({ terms: { "ref.keyword": filters.ref.split(",") } });
     }
     if (filters.ean) {
-      filterClauses.push({ term: { "ean.raw": filters.ean } });
+      filterClauses.push({ terms: { "ean.keyword": filters.ean.split(",") } });
     }
     if (typeof filters.visibility === "number" && filters.visibility) {
       filterClauses.push({
@@ -192,6 +350,44 @@ export class SearchService {
     }
 
     return filterClauses;
+  }
+
+  private _buildSort(lang: string, sortBy?: string): any[] | undefined {
+    let direction: "asc" | "desc" = "desc"; // default ascending
+
+    if (!sortBy) {
+      sortBy = "relevance-";
+    }
+
+    if (sortBy.endsWith("-")) {
+      direction = "desc";
+      sortBy = sortBy.slice(0, -1); // remove trailing '-'
+    } else if (sortBy.endsWith("+") || sortBy.endsWith(" ")) {
+      direction = "asc";
+      sortBy = sortBy.slice(0, -1); // remove trailing '+'
+    }
+
+    const field = this._getSortField(sortBy, lang);
+
+    if (field === "_score") {
+      direction = "desc";
+    }
+
+    return [{ [field]: { order: direction } }];
+  }
+
+  private _getSortField(sortBy: string, lang: string): string {
+    switch (sortBy) {
+      case "price":
+        return "net_price_with_margin";
+      case "description":
+        return `description.${lang}.keyword`;
+      case "ref":
+        return "ref.keyword";
+      case "relevance":
+      default:
+        return "_score";
+    }
   }
 
   private _flattenLangFields(
@@ -226,15 +422,15 @@ export class SearchService {
     const index = "productscatalog-products";
 
     const filters: Array<Record<string, any>> = [
-              { term: { "tenant_id.keyword": tenantId } },
-            ];
+      { term: { "tenant_id.keyword": tenantId } },
+    ];
 
     if (supplierIds) {
-      filters.push({ terms: { "supplier_id.keyword": supplierIds } });
+      filters.push({ terms: { supplier_id: supplierIds } });
     }
 
     if (visibility) {
-      filters.push({ range: { supplier_visibility: { "gte": visibility } } });
+      filters.push({ range: { supplier_visibility: { gte: visibility } } });
     }
 
     const { aggregations } = await this.client.search({
@@ -243,7 +439,7 @@ export class SearchService {
       body: {
         query: {
           bool: {
-            filter: filters
+            filter: filters,
           },
         },
         aggs: {
@@ -286,9 +482,11 @@ export class SearchService {
       },
     });
 
-    return this.buildSupplierTree((aggregations as CategoriesTreeAggregation).suppliers.buckets || [], lang);
+    return this.buildSupplierTree(
+      (aggregations as CategoriesTreeAggregation).suppliers.buckets || [],
+      lang
+    );
   }
-  
 
   buildSupplierTree(
     suppliersCats: SupplierCat[],
@@ -323,7 +521,7 @@ export class SearchService {
                         .map((l3) => {
                           const l3Name =
                             l3.level3Name.hits.hits[0]?._source.level3Name[
-                              lang
+                            lang
                             ] || "";
                           return { id: l3.key, description: l3Name };
                         })

@@ -23,6 +23,7 @@ export class DefaultService {
      * @param level2Id level2 category filter
      * @param level3Id level3 category filter
      * @param visibility supplier visibility
+     * @param ids product ids
      * @returns ProductSearchResponse List of matching products (full document in selected language)
      * @throws ApiError
      */
@@ -38,6 +39,7 @@ export class DefaultService {
         level2Id?: string,
         level3Id?: string,
         visibility?: string,
+        ids?: Array<string>,
     ): CancelablePromise<Array<ProductSearchResponse>> {
         return __request(OpenAPI, {
             method: 'GET',
@@ -54,6 +56,7 @@ export class DefaultService {
                 'level2Id': level2Id,
                 'level3Id': level3Id,
                 'visibility': visibility,
+                'ids': ids,
             },
         });
     }
