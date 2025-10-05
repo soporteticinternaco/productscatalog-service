@@ -4,9 +4,10 @@
 /* eslint-disable */
 
 export type ProductSearchResult = {
+    id?: string;
     ref?: string;
     ean?: string;
-    container_units?: number;
+    container_units?: string;
     container_type?: string;
     supplier_id?: string;
     supplier_name?: string;
@@ -21,5 +22,11 @@ export type ProductSearchResult = {
     level1Name?: string;
     level2Name?: string;
     level3Name?: string;
+    discount1?: number;
+    discount2?: number;
+    net_price?: number;
+    sale_price?: number;
+    net_price_with_margin?: number;
+    vat_amount?: number;
 };
 

@@ -1,5 +1,6 @@
 export type ProductSearchFilters = {
-  supplier_id?: string;
+  id?: string;
+  supplierId?: string;
   ref?: string;
   ean?: string;
   level1Id?: string;

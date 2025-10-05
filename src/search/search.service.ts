@@ -1,6 +1,10 @@
 import { Injectable } from "@nestjs/common";
 import { Client } from "@elastic/elasticsearch";
-import { CategoriesTreeAggregation, ProductSearchFilters, SupplierCat } from "./search.types";
+import {
+  CategoriesTreeAggregation,
+  ProductSearchFilters,
+  SupplierCat,
+} from "./search.types";
 import {
   CategoryNode,
   ProductSearchResponse,
@@ -14,7 +18,7 @@ export class SearchService {
 
   constructor() {
     this.client = new Client({
-      node: process.env.ELASTICSEARCH_NODE || "http://192.168.4.112:9200",
+      node: process.env.ELASTICSEARCH_NODE || "http://192.168.99.101:9200",
       auth: {
         username: process.env.ELASTICSEARCH_USER || "productscatalog",
         password: process.env.ELASTICSEARCH_PASSWORD || "123456",
@@ -36,33 +40,22 @@ export class SearchService {
     lang: string,
     page: number = 1,
     limit: number = 10,
-    filters: ProductSearchFilters = { deleted: false }
+    filters: ProductSearchFilters = { deleted: false },
+    sortBy?: string
   ): Promise<ProductSearchResponse> {
     const index = "productscatalog-products";
 
     const response_fields = [
+      "id",
       "ref",
       "ean",
       "supplier_id",
       "supplier_name",
       `description.${lang}`,
-      "container_units",
-      `container_type.${lang}`,
-      "step",
-      "main_picture_url",
-      "main_picture_thumb_url",
-      "level1",
-      "level2",
-      "level3",
       `short_description.${lang}`,
-      `description.${lang}`,
-      `description.${lang}`,
-      `level1Name.${lang}`,
-      `level2Name.${lang}`,
-      `level3Name.${lang}`,
     ];
 
-    const body =
+    const body:Record<string, any> =
       q && q.length > 0
         ? {
             _source: response_fields,
@@ -87,8 +80,9 @@ export class SearchService {
                   },
                   {
                     match: {
-                      "supplier_name.autocomplete": {
+                      supplier_name: {
                         query: q,
+                        fuzziness: "AUTO",
                         boost: 5,
                       },
                     },
@@ -97,7 +91,17 @@ export class SearchService {
                     match: {
                       [`description.${lang}`]: {
                         query: q,
+                        fuzziness: "AUTO",
                         boost: 5,
+                      },
+                    },
+                  },
+                  {
+                    match: {
+                      [`tags.${lang}`]: {
+                        query: q,
+                        fuzziness: "AUTO",
+                        boost: 2,
                       },
                     },
                   },
@@ -105,6 +109,7 @@ export class SearchService {
                     match: {
                       [`short_description.${lang}`]: {
                         query: q,
+                        fuzziness: "AUTO",
                         boost: 2,
                       },
                     },
@@ -112,12 +117,12 @@ export class SearchService {
                   {
                     multi_match: {
                       query: q,
+                      fuzziness: "AUTO",
                       fields: [
                         `level1Name.${lang}`,
                         `level2Name.${lang}`,
                         `level3Name.${lang}`,
                       ],
-                      type: "phrase_prefix",
                       boost: 1,
                     },
                   },
@@ -128,6 +133,7 @@ export class SearchService {
             },
           }
         : {
+            _source: response_fields,
             query: {
               bool: {
                 filter: this._buildFilters(filters),
@@ -135,9 +141,15 @@ export class SearchService {
             },
           };
 
-    console.log("QUERY: ", JSON.stringify(body, null, 2));
+    const sortClause = this._buildSort(lang, sortBy);
 
-    const from = (page - 1) * limit;
+    if (sortClause) {
+      body.sort = sortClause;
+    }
+
+    console.log("BODY: ", JSON.stringify(body, null, 2));
+
+    const from = page * limit;
 
     const result = await this.client.search({
       index,
@@ -145,6 +157,8 @@ export class SearchService {
       size: limit,
       ...body,
     });
+
+    //console.log("RESPONSE: ", JSON.stringify(result, null, 2));
 
     return {
       navigation: {
@@ -163,18 +177,27 @@ export class SearchService {
   }
 
   private _buildFilters(filters?: ProductSearchFilters) {
+    //console.log("FILTERS: ", JSON.stringify(filters, null, 2));
+
     if (!filters) return [];
 
-    const filterClauses: any[] = [];
+    const filterClauses: any[] = [{ term: {"deleted": false} }];
 
-    if (filters.supplier_id) {
-      filterClauses.push({ term: { "supplier_id.keyword": filters.supplier_id } });
+    if (filters.id) {
+      filterClauses.push({ terms: { "id.keyword": filters.id.split(",") } });
     }
+
+    if (filters.supplierId) {
+      filterClauses.push({
+        term: { "supplier_id.keyword": filters.supplierId },
+      });
+    }
+
     if (filters.ref) {
-      filterClauses.push({ term: { "ref.keyword": filters.ref } });
+      filterClauses.push({ terms: { "ref.keyword": filters.ref.split(",") } });
     }
     if (filters.ean) {
-      filterClauses.push({ term: { "ean.raw": filters.ean } });
+      filterClauses.push({ terms: { "ean.keyword": filters.ean.split(",") } });
     }
     if (typeof filters.visibility === "number" && filters.visibility) {
       filterClauses.push({
@@ -192,6 +215,40 @@ export class SearchService {
     }
 
     return filterClauses;
+  }
+
+  private _buildSort(lang: string, sortBy?: string): any[] |undefined {
+    let direction: "asc" | "desc" = "desc"; // default ascending
+
+    if (!sortBy) {
+      sortBy = "relevance-";
+    }
+
+    if (sortBy.endsWith("-")) {
+      direction = "desc";
+      sortBy = sortBy.slice(0, -1); // remove trailing '-'
+    } else if (sortBy.endsWith("+") || sortBy.endsWith(" ")) {
+      direction = "asc";
+      sortBy = sortBy.slice(0, -1); // remove trailing '+'
+    }
+
+    const field = this._getSortField(sortBy, lang);
+
+    if (field === "_score") {
+      direction = "desc";
+    }
+
+    return [{ [field]: { order: direction } }];
+  }
+
+  private _getSortField(sortBy: string, lang: string): string {
+    switch (sortBy) {
+      case "price": return "net_price_with_margin";
+      case "description": return `description.${lang}.keyword`;
+      case "ref": return "ref.keyword";
+      case "relevance":
+      default: return "_score";
+    }
   }
 
   private _flattenLangFields(
@@ -226,15 +283,15 @@ export class SearchService {
     const index = "productscatalog-products";
 
     const filters: Array<Record<string, any>> = [
-              { term: { "tenant_id.keyword": tenantId } },
-            ];
+      { term: { "tenant_id.keyword": tenantId } },
+    ];
 
     if (supplierIds) {
-      filters.push({ terms: { "supplier_id.keyword": supplierIds } });
+      filters.push({ terms: { supplier_id: supplierIds } });
     }
 
     if (visibility) {
-      filters.push({ range: { supplier_visibility: { "gte": visibility } } });
+      filters.push({ range: { supplier_visibility: { gte: visibility } } });
     }
 
     const { aggregations } = await this.client.search({
@@ -243,7 +300,7 @@ export class SearchService {
       body: {
         query: {
           bool: {
-            filter: filters
+            filter: filters,
           },
         },
         aggs: {
@@ -286,9 +343,11 @@ export class SearchService {
       },
     });
 
-    return this.buildSupplierTree((aggregations as CategoriesTreeAggregation).suppliers.buckets || [], lang);
+    return this.buildSupplierTree(
+      (aggregations as CategoriesTreeAggregation).suppliers.buckets || [],
+      lang
+    );
   }
-  
 
   buildSupplierTree(
     suppliersCats: SupplierCat[],
