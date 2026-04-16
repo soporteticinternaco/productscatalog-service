@@ -18,11 +18,9 @@ export class SearchService {
 
   constructor() {
     this.client = new Client({
-      node: process.env.ELASTICSEARCH_NODE || "http://192.168.99.101:9200",
-      auth: {
-        username: process.env.ELASTICSEARCH_USER || "productscatalog",
-        password: process.env.ELASTICSEARCH_PASSWORD || "123456",
-      },
+      node:
+        process.env.ELASTIC_SEARCH_URL ||
+        "http://productscatalog:123456@192.168.4.112:9200",
       // If using self-signed certs
       tls: {
         rejectUnauthorized: false,
@@ -41,7 +39,7 @@ export class SearchService {
     page: number = 1,
     limit: number = 10,
     filters: ProductSearchFilters = { deleted: false },
-    sortBy?: string
+    sortBy?: string,
   ): Promise<ProductSearchResponse> {
     const index = "productscatalog-products";
 
@@ -53,9 +51,20 @@ export class SearchService {
       "supplier_name",
       `description.${lang}`,
       `short_description.${lang}`,
+      `description.${lang}`,
+      `description.${lang}`,
+      `level1Name.${lang}`,
+      `level2Name.${lang}`,
+      `level3Name.${lang}`,
+      "discount1",
+      "discount2",
+      "net_price",
+      "sale_price",
+      "net_price_with_margin",
+      "vat_amount",
     ];
 
-    const body:Record<string, any> =
+    const body: Record<string, any> =
       q && q.length > 0
         ? {
             _source: response_fields,
@@ -63,18 +72,57 @@ export class SearchService {
               bool: {
                 should: [
                   {
+                    multi_match: {
+                      query: q,
+                      type: "cross_fields",
+                      fields: [
+                        `description.${lang}`,
+                        `short_description.${lang}`,
+                        "supplier_name",
+                        `level3Name.${lang}`,
+                      ],
+                      operator: "and",
+                      boost: 25,
+                    },
+                  },
+                  {
                     term: {
-                      "ref.raw": {
+                      "ref.keyword": {
                         value: q,
-                        boost: 7,
+                        boost: 20,
+                      },
+                    },
+                  },
+                  {
+                    match: {
+                      ref: {
+                        query: q,
+                        boost: 10,
                       },
                     },
                   },
                   {
                     term: {
-                      "ean.raw": {
+                      "ean.keyword": {
                         value: q,
-                        boost: 7,
+                        boost: 20,
+                      },
+                    },
+                  },
+                  {
+                    match: {
+                      ean: {
+                        query: q,
+                        boost: 10,
+                      },
+                    },
+                  },
+                  {
+                    match: {
+                      supplier_name: {
+                        query: q,
+                        boost: 20,
+                        operator: "or",
                       },
                     },
                   },
@@ -83,7 +131,26 @@ export class SearchService {
                       supplier_name: {
                         query: q,
                         fuzziness: "AUTO",
-                        boost: 5,
+                        boost: 8,
+                        operator: "or",
+                      },
+                    },
+                  },
+                  {
+                    match_phrase_prefix: {
+                      [`description.${lang}`]: {
+                        query: q,
+                        boost: 40,
+                      },
+                    },
+                  },
+                  {
+                    match: {
+                      [`description.${lang}`]: {
+                        query: q,
+                        operator: "or",
+                        minimum_should_match: 1,
+                        boost: 15,
                       },
                     },
                   },
@@ -92,16 +159,15 @@ export class SearchService {
                       [`description.${lang}`]: {
                         query: q,
                         fuzziness: "AUTO",
-                        boost: 5,
+                        boost: 4,
                       },
                     },
                   },
                   {
                     match: {
-                      [`tags.${lang}`]: {
+                      [`short_description.${lang}`]: {
                         query: q,
-                        fuzziness: "AUTO",
-                        boost: 2,
+                        boost: 6,
                       },
                     },
                   },
@@ -110,20 +176,59 @@ export class SearchService {
                       [`short_description.${lang}`]: {
                         query: q,
                         fuzziness: "AUTO",
-                        boost: 2,
+                        boost: 3,
                       },
                     },
                   },
                   {
                     multi_match: {
                       query: q,
+                      fields: [`level3Name.${lang}`],
+                      boost: 4,
+                    },
+                  },
+                  {
+                    multi_match: {
+                      query: q,
+                      fields: [`level3Name.${lang}`],
                       fuzziness: "AUTO",
+                      boost: 2,
+                    },
+                  },
+                  {
+                    multi_match: {
+                      query: q,
+                      fields: [`level1Name.${lang}`, `level2Name.${lang}`],
+                      boost: 3,
+                    },
+                  },
+                  {
+                    multi_match: {
+                      query: q,
+                      fields: [`level1Name.${lang}`, `level2Name.${lang}`],
+                      fuzziness: "AUTO",
+                      boost: 2,
+                    },
+                  },
+                  {
+                    multi_match: {
+                      query: q,
                       fields: [
-                        `level1Name.${lang}`,
-                        `level2Name.${lang}`,
-                        `level3Name.${lang}`,
+                        `description.${lang}.phonetic`,
+                        `short_description.${lang}.phonetic`,
+                        `level3Name.${lang}.phonetic`,
                       ],
-                      boost: 1,
+                      boost: 4,
+                    },
+                  },
+                  {
+                    multi_match: {
+                      query: q,
+                      fields: [
+                        `level1Name.${lang}.phonetic`,
+                        `level2Name.${lang}.phonetic`,
+                      ],
+                      boost: 2,
                     },
                   },
                 ],
@@ -181,7 +286,7 @@ export class SearchService {
 
     if (!filters) return [];
 
-    const filterClauses: any[] = [{ term: {"deleted": false} }];
+    const filterClauses: any[] = [{ term: { deleted: false } }];
 
     if (filters.id) {
       filterClauses.push({ terms: { "id.keyword": filters.id.split(",") } });
@@ -217,7 +322,7 @@ export class SearchService {
     return filterClauses;
   }
 
-  private _buildSort(lang: string, sortBy?: string): any[] |undefined {
+  private _buildSort(lang: string, sortBy?: string): any[] | undefined {
     let direction: "asc" | "desc" = "desc"; // default ascending
 
     if (!sortBy) {
@@ -243,17 +348,21 @@ export class SearchService {
 
   private _getSortField(sortBy: string, lang: string): string {
     switch (sortBy) {
-      case "price": return "net_price_with_margin";
-      case "description": return `description.${lang}.keyword`;
-      case "ref": return "ref.keyword";
+      case "price":
+        return "net_price_with_margin";
+      case "description":
+        return `description.${lang}.keyword`;
+      case "ref":
+        return "ref.keyword";
       case "relevance":
-      default: return "_score";
+      default:
+        return "_score";
     }
   }
 
   private _flattenLangFields(
     source: Record<string, any>,
-    lang: string
+    lang: string,
   ): Record<string, any> {
     const flatten = (obj: any): any => {
       if (obj && typeof obj === "object" && !Array.isArray(obj)) {
@@ -278,7 +387,7 @@ export class SearchService {
     tenantId: string,
     visibility: number,
     lang: string,
-    supplierIds?: string[]
+    supplierIds?: string[],
   ): Promise<SupplierCategoriesTree[]> {
     const index = "productscatalog-products";
 
@@ -345,19 +454,19 @@ export class SearchService {
 
     return this.buildSupplierTree(
       (aggregations as CategoriesTreeAggregation).suppliers.buckets || [],
-      lang
+      lang,
     );
   }
 
   buildSupplierTree(
     suppliersCats: SupplierCat[],
-    lang: string
+    lang: string,
   ): SupplierCategoriesTree[] {
     return suppliersCats
       .sort((s1, s2) =>
         s1.supplier_name.hits.hits[0]._source.supplier_name.localeCompare(
-          s2.supplier_name.hits.hits[0]._source.supplier_name
-        )
+          s2.supplier_name.hits.hits[0]._source.supplier_name,
+        ),
       )
       .map((s) => {
         return {
@@ -387,7 +496,7 @@ export class SearchService {
                           return { id: l3.key, description: l3Name };
                         })
                         .sort((a, b) =>
-                          a.description.localeCompare(b.description)
+                          a.description.localeCompare(b.description),
                         ),
                     };
                   })
