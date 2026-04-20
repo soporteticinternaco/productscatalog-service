@@ -3,11 +3,12 @@ export type ProductSearchFilters = {
   supplierId?: string;
   ref?: string;
   ean?: string;
-  level1Id?: string;
-  level2Id?: string;
-  level3Id?: string;
+  l1Id?: string;
+  l2Id?: string;
+  l3Id?: string;
   deleted?: boolean;
   visibility?: number;
+  tenantId?: string;
 };
 
 export type SupplierCat = {
@@ -64,7 +65,7 @@ export type SupplierCat = {
 };
 
 export type CategoriesTreeAggregation = {
-    suppliers: {
-      buckets: SupplierCat[]
-    }
-}
+  suppliers: {
+    buckets: SupplierCat[];
+  };
+};
