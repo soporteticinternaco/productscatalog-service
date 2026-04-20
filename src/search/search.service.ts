@@ -292,6 +292,12 @@ export class SearchService {
       filterClauses.push({ terms: { "id.keyword": filters.id.split(",") } });
     }
 
+    if (filters.tenantId) {
+      filterClauses.push({
+        term: { "tenant_id.keyword": filters.tenantId },
+      });
+    }
+
     if (filters.supplierId) {
       filterClauses.push({
         term: { "supplier_id.keyword": filters.supplierId },
@@ -309,14 +315,14 @@ export class SearchService {
         range: { supplier_visibility: { gte: filters.visibility } },
       });
     }
-    if (filters.level1Id) {
-      filterClauses.push({ term: { level1: filters.level1Id } });
+    if (filters.l1Id) {
+      filterClauses.push({ term: { level1: filters.l1Id } });
     }
-    if (filters.level2Id) {
-      filterClauses.push({ term: { level2: filters.level2Id } });
+    if (filters.l2Id) {
+      filterClauses.push({ term: { level2: filters.l2Id } });
     }
-    if (filters.level3Id) {
-      filterClauses.push({ term: { level3: filters.level3Id } });
+    if (filters.l3Id) {
+      filterClauses.push({ term: { level3: filters.l3Id } });
     }
 
     return filterClauses;
