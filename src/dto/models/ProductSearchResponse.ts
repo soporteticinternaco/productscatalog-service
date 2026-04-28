@@ -10,6 +10,7 @@ export type ProductSearchResponse = {
         total?: number;
         page?: number;
         limit?: number;
+        count?: number;
         firstPage?: string;
         lastPage?: string;
         previousPage?: string | null;

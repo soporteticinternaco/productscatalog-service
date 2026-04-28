@@ -10,6 +10,7 @@ export type ProductSearchFilters = {
   visibility?: number;
   tenantId?: string;
   type?: string;
+  grouping?: boolean;
 };
 
 export type SupplierCat = {

@@ -247,6 +247,17 @@ export class SearchService {
       body.sort = sortClause;
     }
 
+    if (filters.grouping) {
+      body.collapse = {
+        field: "grouping_code",
+        inner_hits: {
+          name: "grouped_items",
+          size: 10,
+          sort: sortClause || [{ _score: "desc" }],
+        },
+      };
+    }
+
     console.log("BODY: ", JSON.stringify(body, null, 2));
 
     const from = page * limit;
@@ -268,10 +279,22 @@ export class SearchService {
             : result.hits.total,
         page,
         limit,
+        count: result.hits.hits.length,
       },
-      data: result.hits.hits.map((hit) => {
+      data: result.hits.hits.map((hit: any) => {
         const src = hit._source || {};
-        return this._flattenLangFields(src, lang) as ProductSearchResult;
+        const flattened = this._flattenLangFields(
+          src,
+          lang,
+        ) as ProductSearchResult;
+
+        if (hit.inner_hits && hit.inner_hits.grouped_items) {
+          flattened.grouped_items = hit.inner_hits.grouped_items.hits.hits
+            .filter((innerHit: any) => innerHit._id !== hit._id)
+            .map((innerHit: any) => this._flattenLangFields(innerHit._source, lang));
+        }
+
+        return flattened;
       }),
     };
   }

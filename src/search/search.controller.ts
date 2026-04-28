@@ -101,6 +101,13 @@ export class SearchController {
     description: "Product type",
     example: "own",
   })
+  @ApiQuery({
+    name: "grouping",
+    type: Boolean,
+    required: false,
+    description: "Group products by grouping_code",
+    example: false,
+  })
   @ApiResponse({ status: 200, description: "Array of products" })
   async search(
     @Req() req: Request,
@@ -119,6 +126,7 @@ export class SearchController {
     @Query("size") size: number = 12,
     @Query("sortBy") sortBy?: string,
     @Query("type") type?: string,
+    @Query("grouping") grouping: boolean = false,
   ): Promise<ProductSearchResponse> {
     if (!page) {
       page = 0;
@@ -150,6 +158,7 @@ export class SearchController {
         visibility,
         id,
         type,
+        grouping: String(grouping) === "true",
       },
       sortBy,
     );
@@ -171,7 +180,8 @@ export class SearchController {
       (id ? `&id=${id}` : "") +
       (visibility ? `&visibility=${visibility}` : "") +
       (sortBy ? `&sortBy=${sortBy}` : "") +
-      (type ? `&type=${type}` : "");
+      (type ? `&type=${type}` : "") +
+      (grouping ? `&grouping=${grouping}` : "");
 
     response.navigation = {
       ...response.navigation,
