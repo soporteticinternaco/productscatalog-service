@@ -94,6 +94,13 @@ export class SearchController {
     description: "Sort by field",
     example: "price+",
   })
+  @ApiQuery({
+    name: "type",
+    type: String,
+    required: false,
+    description: "Product type",
+    example: "own",
+  })
   @ApiResponse({ status: 200, description: "Array of products" })
   async search(
     @Req() req: Request,
@@ -111,6 +118,7 @@ export class SearchController {
     @Query("page") page: number = 1,
     @Query("size") size: number = 12,
     @Query("sortBy") sortBy?: string,
+    @Query("type") type?: string,
   ): Promise<ProductSearchResponse> {
     if (!page) {
       page = 0;
@@ -141,6 +149,7 @@ export class SearchController {
         l3Id,
         visibility,
         id,
+        type,
       },
       sortBy,
     );
@@ -161,7 +170,8 @@ export class SearchController {
       (l3Id ? `&l3Id=${l3Id}` : "") +
       (id ? `&id=${id}` : "") +
       (visibility ? `&visibility=${visibility}` : "") +
-      (sortBy ? `&sortBy=${sortBy}` : "");
+      (sortBy ? `&sortBy=${sortBy}` : "") +
+      (type ? `&type=${type}` : "");
 
     response.navigation = {
       ...response.navigation,

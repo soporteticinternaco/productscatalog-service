@@ -9,6 +9,7 @@ export type ProductSearchFilters = {
   deleted?: boolean;
   visibility?: number;
   tenantId?: string;
+  type?: string;
 };
 
 export type SupplierCat = {

@@ -289,7 +289,7 @@ export class SearchService {
 
     if (filters.tenantId) {
       filterClauses.push({
-        term: { "tenant_id.keyword": filters.tenantId },
+        term: { "tenant_id.keyword": filters.tenantId.toLowerCase() },
       });
     }
 
@@ -318,6 +318,9 @@ export class SearchService {
     }
     if (filters.l3Id) {
       filterClauses.push({ term: { level3: filters.l3Id } });
+    }
+    if (filters.type) {
+      filterClauses.push({ term: { type: filters.type } });
     }
 
     return filterClauses;
@@ -393,7 +396,7 @@ export class SearchService {
     const index = "productscatalog-products";
 
     const filters: Array<Record<string, any>> = [
-      { term: { "tenant_id.keyword": tenantId } },
+      { term: { "tenant_id.keyword": tenantId.toLowerCase() } },
     ];
 
     if (supplierIds) {
