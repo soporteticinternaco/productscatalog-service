@@ -108,6 +108,13 @@ export class SearchController {
     description: "Group products by grouping_code",
     example: false,
   })
+  @ApiQuery({
+    name: "rate",
+    type: String,
+    required: false,
+    description: "Product rate ID",
+    example: "R1",
+  })
   @ApiResponse({ status: 200, description: "Array of products" })
   async search(
     @Req() req: Request,
@@ -127,6 +134,7 @@ export class SearchController {
     @Query("sortBy") sortBy?: string,
     @Query("type") type?: string,
     @Query("grouping") grouping: boolean = false,
+    @Query("rate") rate?: string,
   ): Promise<ProductSearchResponse> {
     if (!page) {
       page = 0;
@@ -159,6 +167,7 @@ export class SearchController {
         id,
         type,
         grouping: String(grouping) === "true",
+        rate,
       },
       sortBy,
     );
@@ -170,7 +179,7 @@ export class SearchController {
 
     const buildUrl = (p: number) =>
       `${baseUrl}?lang=${encodeURIComponent(lang)}&page=${p}&size=${size}` +
-      (q ? `query=${encodeURIComponent(q)}` : "") +
+      (q ? `&query=${encodeURIComponent(q)}` : "") +
       (supplierId ? `&supplierId=${supplierId}` : "") +
       (ref ? `&ref=${ref}` : "") +
       (ean ? `&ean=${ean}` : "") +
@@ -181,7 +190,8 @@ export class SearchController {
       (visibility ? `&visibility=${visibility}` : "") +
       (sortBy ? `&sortBy=${sortBy}` : "") +
       (type ? `&type=${type}` : "") +
-      (grouping ? `&grouping=${grouping}` : "");
+      (grouping ? `&grouping=${grouping}` : "") +
+      (rate ? `&rate=${rate}` : "");
 
     response.navigation = {
       ...response.navigation,
@@ -236,6 +246,13 @@ export class SearchController {
     description: "Client visibility",
     example: 0,
   })
+  @ApiQuery({
+    name: "deleted",
+    type: Boolean,
+    required: false,
+    description: "Include deleted products. If not set, only non-deleted are returned.",
+    example: false,
+  })
   @HttpCode(200)
   async getCategoriesTree(
     @Req() req: Request,
@@ -246,12 +263,15 @@ export class SearchController {
     @Query("l2Id") level2Id?: string,
     @Query("l3Id") level3Id?: string,
     @Query("visibility") visibility: number = 0,
+    @Query("deleted") deleted?: string,
   ): Promise<GetCategoriesTreeResponse> {
+    console.log("===>> tenantId: " + tenantId);
     const trees = await this.searchService.getCategoriesTree(
       tenantId,
       visibility || 0,
       lang || "es",
       supplierIds,
+      deleted !== undefined ? String(deleted) === "true" : undefined,
     );
     return { data: trees };
   }

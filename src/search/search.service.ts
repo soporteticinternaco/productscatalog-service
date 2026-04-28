@@ -57,6 +57,7 @@ export class SearchService {
       "sale_price",
       "net_price_with_margin",
       "vat_amount",
+      "rates",
     ];
 
     const body: Record<string, any> =
@@ -241,58 +242,97 @@ export class SearchService {
           },
         };
 
-    const sortClause = this._buildSort(lang, sortBy);
+    const sortClause = this._buildSort(lang, sortBy, filters);
 
     if (sortClause) {
       body.sort = sortClause;
     }
 
-    if (filters.grouping) {
+    if (filters.grouping && (!filters.type || filters.type === "own")) {
       body.collapse = {
         field: "grouping_code",
         inner_hits: {
           name: "grouped_items",
-          size: 10,
+          size: 30,
           sort: sortClause || [{ _score: "desc" }],
         },
       };
     }
 
-    console.log("BODY: ", JSON.stringify(body, null, 2));
+    const isGrouping = filters.grouping && (!filters.type || filters.type === "own");
 
+    if (isGrouping) {
+      // Add cardinality aggregation to get the true count of unique collapsed groups.
+      body.aggs = {
+        ...body.aggs,
+        total_groups: {
+          cardinality: { field: "grouping_code" },
+        },
+      };
+    }
+
+    // When collapse is active, ES processes `from + size` raw docs then collapses.
+    // To guarantee `limit` unique collapsed groups we over-fetch by a multiplier.
+    const GROUPING_FETCH_MULTIPLIER = 5;
+    const fetchSize = isGrouping ? limit * GROUPING_FETCH_MULTIPLIER : limit;
     const from = page * limit;
+
+
 
     const result = await this.client.search({
       index,
       from,
-      size: limit,
+      size: fetchSize,
       ...body,
     });
 
-    //console.log("RESPONSE: ", JSON.stringify(result, null, 2));
-
     return {
       navigation: {
-        total:
-          result.hits.total instanceof Object
-            ? result.hits.total.value
-            : result.hits.total,
+        total: isGrouping
+          ? ((result as any).aggregations?.total_groups?.value ?? (
+            result.hits.total instanceof Object
+              ? result.hits.total.value
+              : result.hits.total
+          ))
+          : (
+            result.hits.total instanceof Object
+              ? result.hits.total.value
+              : result.hits.total
+          ),
         page,
         limit,
-        count: result.hits.hits.length,
+        count: isGrouping
+          ? Math.min(result.hits.hits.length, limit)
+          : result.hits.hits.length,
       },
-      data: result.hits.hits.map((hit: any) => {
+      data: (isGrouping ? result.hits.hits.slice(0, limit) : result.hits.hits).map((hit: any) => {
         const src = hit._source || {};
         const flattened = this._flattenLangFields(
           src,
           lang,
         ) as ProductSearchResult;
 
+        const applyRatePrice = (item: any, rawSrc: any) => {
+          if (filters.rate && (!filters.type || filters.type === "own")) {
+            const rateData = rawSrc.rates?.find((r: any) => r.id === filters.rate);
+            if (rateData) {
+              item.net_price = rateData.price;
+            }
+          }
+          delete item.rates;
+          return item;
+        };
+
         if (hit.inner_hits && hit.inner_hits.grouped_items) {
           flattened.grouped_items = hit.inner_hits.grouped_items.hits.hits
             .filter((innerHit: any) => innerHit._id !== hit._id)
-            .map((innerHit: any) => this._flattenLangFields(innerHit._source, lang));
+            .map((innerHit: any) => {
+              const innerFlattened = this._flattenLangFields(innerHit._source, lang) as any;
+              return applyRatePrice(innerFlattened, innerHit._source);
+            });
         }
+
+        applyRatePrice(flattened, src);
 
         return flattened;
       }),
@@ -300,8 +340,6 @@ export class SearchService {
   }
 
   private _buildFilters(filters?: ProductSearchFilters) {
-    //console.log("FILTERS: ", JSON.stringify(filters, null, 2));
-
     if (!filters) return [];
 
     const filterClauses: any[] = [{ term: { deleted: false } }];
@@ -345,11 +383,25 @@ export class SearchService {
     if (filters.type) {
       filterClauses.push({ term: { type: filters.type } });
     }
+    if (filters.rate && (!filters.type || filters.type === "own")) {
+      filterClauses.push({
+        nested: {
+          path: "rates",
+          query: {
+            term: { "rates.id": filters.rate },
+          },
+        },
+      });
+    }
 
     return filterClauses;
   }
 
-  private _buildSort(lang: string, sortBy?: string): any[] | undefined {
+  private _buildSort(
+    lang: string,
+    sortBy?: string,
+    filters: ProductSearchFilters = {},
+  ): any[] | undefined {
     let direction: "asc" | "desc" = "desc"; // default ascending
 
     if (!sortBy) {
@@ -366,17 +418,28 @@ export class SearchService {
 
     const field = this._getSortField(sortBy, lang);
     if (field === "price") {
+      const rateId = filters.rate && (!filters.type || filters.type === "own") ? filters.rate : null;
       return [
         {
           _script: {
             type: "number",
             script: {
               lang: "painless",
+              params: { rateId },
               source: `
                 if (doc['type'].size() == 0) return 0;
                 if (doc['type'].value == 'edp') {
                   return doc['net_price_with_margin'].size() > 0 ? doc['net_price_with_margin'].value : 0;
                 } else {
+                  if (params.rateId != null && params.rateId != "") {
+                    if (params._source.rates != null) {
+                      for (rate in params._source.rates) {
+                        if (rate.id == params.rateId) {
+                          return rate.price;
+                        }
+                      }
+                    }
+                  }
                   return doc['net_price'].size() > 0 ? doc['net_price'].value : 0;
                 }
               `,
@@ -436,8 +499,9 @@ export class SearchService {
     visibility: number,
     lang: string,
     supplierIds?: string[],
+    deleted?: boolean,
   ): Promise<SupplierCategoriesTree[]> {
-    const index = "productscatalog-products";
+    const index = `productscatalog-${tenantId.toLocaleLowerCase()}-products`;
 
     const filters: Array<Record<string, any>> = [
       { term: { "tenant_id.keyword": tenantId.toLowerCase() } },
@@ -449,6 +513,12 @@ export class SearchService {
 
     if (visibility) {
       filters.push({ range: { supplier_visibility: { gte: visibility } } });
+    }
+
+    if (deleted !== undefined) {
+      filters.push({ term: { deleted } });
+    } else {
+      filters.push({ term: { deleted: false } });
     }
 
     const { aggregations } = await this.client.search({
@@ -529,9 +599,9 @@ export class SearchService {
                 description: l1Name,
                 children: (l1.level2.buckets || [])
                   .map((l2) => {
-                    const l2Name =
-                      l2.level2Name.hits.hits[0]?._source.level2Name[lang] ||
+                    const l2Name = l2.level2Name.hits.hits[0]?._source.level2Name[lang] ||
                       "";
+
                     return {
                       id: l2.key,
                       description: l2Name,

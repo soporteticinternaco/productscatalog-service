@@ -11,6 +11,7 @@ export type ProductSearchFilters = {
   tenantId?: string;
   type?: string;
   grouping?: boolean;
+  rate?: string;
 };
 
 export type SupplierCat = {
