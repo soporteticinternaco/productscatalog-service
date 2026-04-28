@@ -11,21 +11,14 @@ import {
   ProductSearchResult,
   SupplierCategoriesTree,
 } from "src/dto";
+import { ElasticService } from "./elastic.service";
 
 @Injectable()
 export class SearchService {
   private client: Client;
 
-  constructor() {
-    this.client = new Client({
-      node:
-        process.env.ELASTIC_SEARCH_URL ||
-        "http://productscatalog:123456@192.168.4.112:9200",
-      // If using self-signed certs
-      tls: {
-        rejectUnauthorized: false,
-      },
-    });
+  constructor(private elasticService: ElasticService) {
+    this.client = this.elasticService.client;
   }
 
   /**
@@ -41,7 +34,9 @@ export class SearchService {
     filters: ProductSearchFilters = { deleted: false },
     sortBy?: string,
   ): Promise<ProductSearchResponse> {
-    const index = "productscatalog-products";
+    const tenantId = filters.tenantId?.toLowerCase();
+
+    const index = `productscatalog-${tenantId}-products`;
 
     const response_fields = [
       "id",
@@ -67,184 +62,184 @@ export class SearchService {
     const body: Record<string, any> =
       q && q.length > 0
         ? {
-            _source: response_fields,
-            query: {
-              bool: {
-                should: [
-                  {
-                    multi_match: {
+          _source: response_fields,
+          query: {
+            bool: {
+              should: [
+                {
+                  multi_match: {
+                    query: q,
+                    type: "cross_fields",
+                    fields: [
+                      `description.${lang}`,
+                      `short_description.${lang}`,
+                      "supplier_name",
+                      `level3Name.${lang}`,
+                    ],
+                    operator: "and",
+                    boost: 25,
+                  },
+                },
+                {
+                  term: {
+                    "ref.keyword": {
+                      value: q,
+                      boost: 20,
+                    },
+                  },
+                },
+                {
+                  match: {
+                    ref: {
                       query: q,
-                      type: "cross_fields",
-                      fields: [
-                        `description.${lang}`,
-                        `short_description.${lang}`,
-                        "supplier_name",
-                        `level3Name.${lang}`,
-                      ],
-                      operator: "and",
-                      boost: 25,
+                      boost: 10,
                     },
                   },
-                  {
-                    term: {
-                      "ref.keyword": {
-                        value: q,
-                        boost: 20,
-                      },
+                },
+                {
+                  term: {
+                    "ean.keyword": {
+                      value: q,
+                      boost: 20,
                     },
                   },
-                  {
-                    match: {
-                      ref: {
-                        query: q,
-                        boost: 10,
-                      },
-                    },
-                  },
-                  {
-                    term: {
-                      "ean.keyword": {
-                        value: q,
-                        boost: 20,
-                      },
-                    },
-                  },
-                  {
-                    match: {
-                      ean: {
-                        query: q,
-                        boost: 10,
-                      },
-                    },
-                  },
-                  {
-                    match: {
-                      supplier_name: {
-                        query: q,
-                        boost: 20,
-                        operator: "or",
-                      },
-                    },
-                  },
-                  {
-                    match: {
-                      supplier_name: {
-                        query: q,
-                        fuzziness: "AUTO",
-                        boost: 8,
-                        operator: "or",
-                      },
-                    },
-                  },
-                  {
-                    match_phrase_prefix: {
-                      [`description.${lang}`]: {
-                        query: q,
-                        boost: 40,
-                      },
-                    },
-                  },
-                  {
-                    match: {
-                      [`description.${lang}`]: {
-                        query: q,
-                        operator: "or",
-                        minimum_should_match: 1,
-                        boost: 15,
-                      },
-                    },
-                  },
-                  {
-                    match: {
-                      [`description.${lang}`]: {
-                        query: q,
-                        fuzziness: "AUTO",
-                        boost: 4,
-                      },
-                    },
-                  },
-                  {
-                    match: {
-                      [`short_description.${lang}`]: {
-                        query: q,
-                        boost: 6,
-                      },
-                    },
-                  },
-                  {
-                    match: {
-                      [`short_description.${lang}`]: {
-                        query: q,
-                        fuzziness: "AUTO",
-                        boost: 3,
-                      },
-                    },
-                  },
-                  {
-                    multi_match: {
+                },
+                {
+                  match: {
+                    ean: {
                       query: q,
-                      fields: [`level3Name.${lang}`],
+                      boost: 10,
+                    },
+                  },
+                },
+                {
+                  match: {
+                    supplier_name: {
+                      query: q,
+                      boost: 20,
+                      operator: "or",
+                    },
+                  },
+                },
+                {
+                  match: {
+                    supplier_name: {
+                      query: q,
+                      fuzziness: "AUTO",
+                      boost: 8,
+                      operator: "or",
+                    },
+                  },
+                },
+                {
+                  match_phrase_prefix: {
+                    [`description.${lang}`]: {
+                      query: q,
+                      boost: 40,
+                    },
+                  },
+                },
+                {
+                  match: {
+                    [`description.${lang}`]: {
+                      query: q,
+                      operator: "or",
+                      minimum_should_match: 1,
+                      boost: 15,
+                    },
+                  },
+                },
+                {
+                  match: {
+                    [`description.${lang}`]: {
+                      query: q,
+                      fuzziness: "AUTO",
                       boost: 4,
                     },
                   },
-                  {
-                    multi_match: {
+                },
+                {
+                  match: {
+                    [`short_description.${lang}`]: {
                       query: q,
-                      fields: [`level3Name.${lang}`],
-                      fuzziness: "AUTO",
-                      boost: 2,
+                      boost: 6,
                     },
                   },
-                  {
-                    multi_match: {
+                },
+                {
+                  match: {
+                    [`short_description.${lang}`]: {
                       query: q,
-                      fields: [`level1Name.${lang}`, `level2Name.${lang}`],
+                      fuzziness: "AUTO",
                       boost: 3,
                     },
                   },
-                  {
-                    multi_match: {
-                      query: q,
-                      fields: [`level1Name.${lang}`, `level2Name.${lang}`],
-                      fuzziness: "AUTO",
-                      boost: 2,
-                    },
+                },
+                {
+                  multi_match: {
+                    query: q,
+                    fields: [`level3Name.${lang}`],
+                    boost: 4,
                   },
-                  {
-                    multi_match: {
-                      query: q,
-                      fields: [
-                        `description.${lang}.phonetic`,
-                        `short_description.${lang}.phonetic`,
-                        `level3Name.${lang}.phonetic`,
-                      ],
-                      boost: 4,
-                    },
+                },
+                {
+                  multi_match: {
+                    query: q,
+                    fields: [`level3Name.${lang}`],
+                    fuzziness: "AUTO",
+                    boost: 2,
                   },
-                  {
-                    multi_match: {
-                      query: q,
-                      fields: [
-                        `level1Name.${lang}.phonetic`,
-                        `level2Name.${lang}.phonetic`,
-                      ],
-                      boost: 2,
-                    },
+                },
+                {
+                  multi_match: {
+                    query: q,
+                    fields: [`level1Name.${lang}`, `level2Name.${lang}`],
+                    boost: 3,
                   },
-                ],
-                minimum_should_match: 1,
-                filter: this._buildFilters(filters),
-              },
+                },
+                {
+                  multi_match: {
+                    query: q,
+                    fields: [`level1Name.${lang}`, `level2Name.${lang}`],
+                    fuzziness: "AUTO",
+                    boost: 2,
+                  },
+                },
+                {
+                  multi_match: {
+                    query: q,
+                    fields: [
+                      `description.${lang}.phonetic`,
+                      `short_description.${lang}.phonetic`,
+                      `level3Name.${lang}.phonetic`,
+                    ],
+                    boost: 4,
+                  },
+                },
+                {
+                  multi_match: {
+                    query: q,
+                    fields: [
+                      `level1Name.${lang}.phonetic`,
+                      `level2Name.${lang}.phonetic`,
+                    ],
+                    boost: 2,
+                  },
+                },
+              ],
+              minimum_should_match: 1,
+              filter: this._buildFilters(filters),
             },
-          }
+          },
+        }
         : {
-            _source: response_fields,
-            query: {
-              bool: {
-                filter: this._buildFilters(filters),
-              },
+          _source: response_fields,
+          query: {
+            bool: {
+              filter: this._buildFilters(filters),
             },
-          };
+          },
+        };
 
     const sortClause = this._buildSort(lang, sortBy);
 
@@ -497,7 +492,7 @@ export class SearchService {
                         .map((l3) => {
                           const l3Name =
                             l3.level3Name.hits.hits[0]?._source.level3Name[
-                              lang
+                            lang
                             ] || "";
                           return { id: l3.key, description: l3Name };
                         })

@@ -1,5 +1,5 @@
-import { Controller, Get, Query, Req, HttpCode } from "@nestjs/common";
-import { ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
+import { Controller, Get, Query, Req, HttpCode, Param } from "@nestjs/common";
+import { ApiQuery, ApiResponse, ApiTags, ApiParam } from "@nestjs/swagger";
 import { SearchService } from "./search.service";
 import { GetCategoriesTreeResponse, ProductSearchResponse } from "../dto";
 import { Request } from "express";
@@ -7,9 +7,10 @@ import { Request } from "express";
 @ApiTags("Search")
 @Controller("search")
 export class SearchController {
-  constructor(private readonly searchService: SearchService) {}
+  constructor(private readonly searchService: SearchService) { }
 
-  @Get()
+  @Get(":tenantId")
+  @ApiParam({ name: "tenantId", required: true, type: String })
   @ApiQuery({ name: "q", required: false })
   @ApiQuery({
     name: "lang",
@@ -96,6 +97,7 @@ export class SearchController {
   @ApiResponse({ status: 200, description: "Array of products" })
   async search(
     @Req() req: Request,
+    @Param("tenantId") tenantId: string,
     @Query("q") q?: string,
     @Query("lang") lang: string = "es",
     @Query("supplierId") supplierId?: string,
@@ -130,6 +132,7 @@ export class SearchController {
       page,
       size,
       {
+        tenantId,
         supplierId,
         ref,
         ean,
@@ -171,8 +174,8 @@ export class SearchController {
     return response;
   }
 
-  @Get("categories-tree")
-  @ApiQuery({ name: "tenantId", required: true })
+  @Get(":tenantId/categories-tree")
+  @ApiParam({ name: "tenantId", required: true, type: String })
   @ApiQuery({
     name: "lang",
     required: false,
@@ -216,7 +219,7 @@ export class SearchController {
   @HttpCode(200)
   async getCategoriesTree(
     @Req() req: Request,
-    @Query("tenantId") tenantId: string,
+    @Param("tenantId") tenantId: string,
     @Query("lang") lang?: string,
     @Query("supplierIds") supplierIds?: string[],
     @Query("lId") level1Id?: string,
