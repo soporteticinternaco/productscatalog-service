@@ -365,6 +365,27 @@ export class SearchService {
     }
 
     const field = this._getSortField(sortBy, lang);
+    if (field === "price") {
+      return [
+        {
+          _script: {
+            type: "number",
+            script: {
+              lang: "painless",
+              source: `
+                if (doc['type'].size() == 0) return 0;
+                if (doc['type'].value == 'edp') {
+                  return doc['net_price_with_margin'].size() > 0 ? doc['net_price_with_margin'].value : 0;
+                } else {
+                  return doc['net_price'].size() > 0 ? doc['net_price'].value : 0;
+                }
+              `,
+            },
+            order: direction,
+          },
+        },
+      ];
+    }
 
     if (field === "_score") {
       direction = "desc";
@@ -376,7 +397,7 @@ export class SearchService {
   private _getSortField(sortBy: string, lang: string): string {
     switch (sortBy) {
       case "price":
-        return "net_price_with_margin";
+        return "price";
       case "description":
         return `description.${lang}.keyword`;
       case "ref":
