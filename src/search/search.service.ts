@@ -27,16 +27,18 @@ export class SearchService {
    * - Returns full _source for each hit.
    */
   async search(
-    q: string,
     lang: string,
     page: number = 1,
     limit: number = 10,
     filters: ProductSearchFilters = { deleted: false },
+    q?: string,
     sortBy?: string,
   ): Promise<ProductSearchResponse> {
     const tenantId = filters.tenantId?.toLowerCase();
 
     const index = `productscatalog-${tenantId}-products`;
+
+    lang = lang.toLowerCase();
 
     const response_fields = [
       "id",
@@ -46,8 +48,6 @@ export class SearchService {
       "supplier_name",
       `description.${lang}`,
       `short_description.${lang}`,
-      `description.${lang}`,
-      `description.${lang}`,
       `level1Name.${lang}`,
       `level2Name.${lang}`,
       `level3Name.${lang}`,
@@ -59,6 +59,19 @@ export class SearchService {
       "vat_amount",
       "rates",
     ];
+
+    if (filters?.type === "edp") {
+      response_fields.push(
+        "container_units",
+        `container_type.${lang}`,
+        "step",
+        "main_picture_url",
+        "main_picture_thumb_url",
+        "level1",
+        "level2",
+        "level3"
+      );
+    }
 
     const body: Record<string, any> =
       q && q.length > 0
@@ -277,7 +290,7 @@ export class SearchService {
     const fetchSize = isGrouping ? limit * GROUPING_FETCH_MULTIPLIER : limit;
     const from = page * limit;
 
-
+    console.log("BODY", JSON.stringify(body, null, 2))
 
     const result = await this.client.search({
       index,
