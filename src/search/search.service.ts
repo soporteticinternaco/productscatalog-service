@@ -176,7 +176,7 @@ export class SearchService {
             [`description.${lang}`]: {
               query: q,
               fuzziness: "AUTO",
-              boost: 1, // low → recall only
+              boost: 10, // Increased boost to compensate for removing function_score functions
             },
           },
         });
@@ -201,33 +201,7 @@ export class SearchService {
               },
             },
 
-            // 🔥 replaces rescore
-            functions: isFuzzy
-              ? [
-                {
-                  filter: {
-                    match: {
-                      [`description.${lang}`]: {
-                        query: q,
-                        fuzziness: "AUTO",
-                      },
-                    },
-                  },
-                  weight: 4,
-                },
-                {
-                  filter: {
-                    match: {
-                      [`short_description.${lang}`]: {
-                        query: q,
-                        fuzziness: "AUTO",
-                      },
-                    },
-                  },
-                  weight: 3,
-                },
-              ]
-              : [],
+            functions: [], // Consolidate fuzzy matches in main query for better performance
 
             score_mode: "sum",
             boost_mode: "sum",
@@ -258,24 +232,25 @@ export class SearchService {
         field: "grouping_code",
         inner_hits: {
           name: "grouped_items",
-          size: 30,
+          size: 10,
           sort: [{ _score: "desc" }]
         },
       };
 
       body.aggs = {
         total_groups: {
-          cardinality: { field: "grouping_code" },
+          cardinality: {
+            field: "grouping_code",
+            precision_threshold: 1000,
+          },
         },
       };
     }
-    /*
-        if (q) {
-          body.min_score = 3; // 🔥 tune this (start 3–10)
-        }*/
+    /* if (q) {
+      body.min_score = 3; // 🔥 tune this (start 3–10)
+    }*/
 
-    const GROUPING_FETCH_MULTIPLIER = 3;
-    const fetchSize = isGrouping ? limit * GROUPING_FETCH_MULTIPLIER : limit;
+    const fetchSize = limit;
     const from = page * limit;
 
     const result = await this.client.search({
@@ -283,6 +258,7 @@ export class SearchService {
       from,
       size: fetchSize,
       track_scores: true,
+      track_total_hits: isGrouping ? false : 10000,
       ...body,
     });
 
