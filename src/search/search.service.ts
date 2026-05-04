@@ -35,10 +35,10 @@ export class SearchService {
     sortBy?: string,
   ): Promise<ProductSearchResponse> {
     const tenantId = filters.tenantId?.toLowerCase();
-
     const index = `productscatalog-${tenantId}-products`;
-
     lang = lang.toLowerCase();
+
+    const isFuzzy = !!q && q.length >= 3;
 
     const response_fields = [
       "id",
@@ -73,231 +73,220 @@ export class SearchService {
       );
     }
 
-    const body: Record<string, any> =
-      q && q.length > 0
-        ? {
-          _source: response_fields,
-          query: {
-            bool: {
-              should: [
-                {
-                  multi_match: {
+    const filtersClause = this._buildFilters(filters);
+
+    let body: Record<string, any>;
+
+    if (q && q.length > 0) {
+      const mainQueries: any[] = [
+        // 🔹 Exact boosts (cheap & important)
+        { term: { "ref.keyword": { value: q, boost: 20 } } },
+        { term: { "ean.keyword": { value: q, boost: 20 } } },
+
+        // 🔹 Text relevance grouped per field using dis_max
+        {
+          dis_max: {
+            tie_breaker: 0.1,
+            queries: [
+              {
+                multi_match: {
+                  query: q,
+                  type: "cross_fields",
+                  fields: [
+                    `description.${lang}`,
+                    `short_description.${lang}`,
+                    "supplier_name",
+                    `level3Name.${lang}`,
+                  ],
+                  operator: "and",
+                  boost: 25,
+                },
+              },
+              {
+                match_phrase_prefix: {
+                  [`description.${lang}`]: {
                     query: q,
-                    type: "cross_fields",
-                    fields: [
-                      `description.${lang}`,
-                      `short_description.${lang}`,
-                      "supplier_name",
-                      `level3Name.${lang}`,
-                    ],
-                    operator: "and",
-                    boost: 25,
+                    boost: 40,
+                    max_expansions: 10, // 🔥 optimization
                   },
                 },
-                {
-                  term: {
-                    "ref.keyword": {
-                      value: q,
-                      boost: 20,
-                    },
-                  },
-                },
-                {
-                  match: {
-                    ref: {
-                      query: q,
-                      boost: 10,
-                    },
-                  },
-                },
-                {
-                  term: {
-                    "ean.keyword": {
-                      value: q,
-                      boost: 20,
-                    },
-                  },
-                },
-                {
-                  match: {
-                    ean: {
-                      query: q,
-                      boost: 10,
-                    },
-                  },
-                },
-                {
-                  match: {
-                    supplier_name: {
-                      query: q,
-                      boost: 20,
-                      operator: "or",
-                    },
-                  },
-                },
-                {
-                  match: {
-                    supplier_name: {
-                      query: q,
-                      fuzziness: "AUTO",
-                      boost: 8,
-                      operator: "or",
-                    },
-                  },
-                },
-                {
-                  match_phrase_prefix: {
-                    [`description.${lang}`]: {
-                      query: q,
-                      boost: 40,
-                    },
-                  },
-                },
-                {
-                  match: {
-                    [`description.${lang}`]: {
-                      query: q,
-                      operator: "or",
-                      minimum_should_match: 1,
-                      boost: 15,
-                    },
-                  },
-                },
-                {
-                  match: {
-                    [`description.${lang}`]: {
-                      query: q,
-                      fuzziness: "AUTO",
-                      boost: 4,
-                    },
-                  },
-                },
-                {
-                  match: {
-                    [`short_description.${lang}`]: {
-                      query: q,
-                      boost: 6,
-                    },
-                  },
-                },
-                {
-                  match: {
-                    [`short_description.${lang}`]: {
-                      query: q,
-                      fuzziness: "AUTO",
-                      boost: 3,
-                    },
-                  },
-                },
-                {
-                  multi_match: {
+              },
+              {
+                match: {
+                  [`description.${lang}`]: {
                     query: q,
-                    fields: [`level3Name.${lang}`],
-                    boost: 4,
+                    boost: 15,
                   },
                 },
-                {
-                  multi_match: {
+              },
+              {
+                match: {
+                  [`short_description.${lang}`]: {
                     query: q,
-                    fields: [`level3Name.${lang}`],
-                    fuzziness: "AUTO",
-                    boost: 2,
+                    boost: 6,
                   },
                 },
-                {
-                  multi_match: {
+              },
+              {
+                match: {
+                  supplier_name: {
                     query: q,
-                    fields: [`level1Name.${lang}`, `level2Name.${lang}`],
-                    boost: 3,
+                    boost: 20,
                   },
                 },
-                {
-                  multi_match: {
-                    query: q,
-                    fields: [`level1Name.${lang}`, `level2Name.${lang}`],
-                    fuzziness: "AUTO",
-                    boost: 2,
-                  },
-                },
-                {
-                  multi_match: {
-                    query: q,
-                    fields: [
-                      `description.${lang}.phonetic`,
-                      `short_description.${lang}.phonetic`,
-                      `level3Name.${lang}.phonetic`,
-                    ],
-                    boost: 4,
-                  },
-                },
-                {
-                  multi_match: {
-                    query: q,
-                    fields: [
-                      `level1Name.${lang}.phonetic`,
-                      `level2Name.${lang}.phonetic`,
-                    ],
-                    boost: 2,
-                  },
-                },
-              ],
-              minimum_should_match: 1,
-              filter: this._buildFilters(filters),
+              },
+            ],
+          },
+        },
+
+        // 🔹 Category fields
+        {
+          multi_match: {
+            query: q,
+            fields: [`level3Name.${lang}`],
+            boost: 4,
+          },
+        },
+        {
+          multi_match: {
+            query: q,
+            fields: [`level1Name.${lang}`, `level2Name.${lang}`],
+            boost: 3,
+          },
+        },
+
+        // 🔹 Phonetic (recall helper)
+        {
+          multi_match: {
+            query: q,
+            fields: [
+              `description.${lang}.phonetic`,
+              `short_description.${lang}.phonetic`,
+              `level3Name.${lang}.phonetic`,
+            ],
+            boost: 4,
+          },
+        },
+      ];
+
+      // ✅ Minimal fuzziness for recall (ONLY ONE CLAUSE)
+      if (isFuzzy) {
+        mainQueries.push({
+          match: {
+            [`description.${lang}`]: {
+              query: q,
+              fuzziness: "AUTO",
+              boost: 1, // low → recall only
             },
           },
-        }
-        : {
-          _source: response_fields,
-          query: {
-            bool: {
-              filter: this._buildFilters(filters),
+        });
+      }
+
+      body = {
+        _source: response_fields,
+        query: {
+          function_score: {
+            query: {
+              bool: {
+                should: [
+                  {
+                    dis_max: {
+                      queries: mainQueries,
+                      tie_breaker: 0.1,
+                    },
+                  },
+                ],
+                minimum_should_match: 1,
+                filter: filtersClause,
+              },
             },
+
+            // 🔥 replaces rescore
+            functions: isFuzzy
+              ? [
+                {
+                  filter: {
+                    match: {
+                      [`description.${lang}`]: {
+                        query: q,
+                        fuzziness: "AUTO",
+                      },
+                    },
+                  },
+                  weight: 4,
+                },
+                {
+                  filter: {
+                    match: {
+                      [`short_description.${lang}`]: {
+                        query: q,
+                        fuzziness: "AUTO",
+                      },
+                    },
+                  },
+                  weight: 3,
+                },
+              ]
+              : [],
+
+            score_mode: "sum",
+            boost_mode: "sum",
+            max_boost: 50, // 🔥 prevents score explosion
           },
-        };
+        },
+      };
 
-    const sortClause = this._buildSort(lang, sortBy, filters);
 
-    if (sortClause) {
-      body.sort = sortClause;
+    } else {
+      body = {
+        _source: response_fields,
+        query: {
+          bool: {
+            filter: filtersClause,
+          },
+        },
+      };
     }
 
-    if (filters.grouping && (!filters.type || filters.type === "own")) {
+    const sortClause = this._buildSort(lang, sortBy, filters);
+    if (sortClause) body.sort = sortClause;
+
+    const isGrouping = filters.grouping && (!filters.type || filters.type === "own");
+
+    if (isGrouping) {
       body.collapse = {
         field: "grouping_code",
         inner_hits: {
           name: "grouped_items",
           size: 30,
-          sort: sortClause || [{ _score: "desc" }],
+          sort: [{ _score: "desc" }]
         },
       };
-    }
 
-    const isGrouping = filters.grouping && (!filters.type || filters.type === "own");
-
-    if (isGrouping) {
-      // Add cardinality aggregation to get the true count of unique collapsed groups.
       body.aggs = {
-        ...body.aggs,
         total_groups: {
           cardinality: { field: "grouping_code" },
         },
       };
     }
+    /*
+        if (q) {
+          body.min_score = 3; // 🔥 tune this (start 3–10)
+        }*/
 
-    // When collapse is active, ES processes `from + size` raw docs then collapses.
-    // To guarantee `limit` unique collapsed groups we over-fetch by a multiplier.
-    const GROUPING_FETCH_MULTIPLIER = 5;
+    const GROUPING_FETCH_MULTIPLIER = 3;
     const fetchSize = isGrouping ? limit * GROUPING_FETCH_MULTIPLIER : limit;
     const from = page * limit;
-
-    console.log("BODY", JSON.stringify(body, null, 2))
 
     const result = await this.client.search({
       index,
       from,
       size: fetchSize,
+      track_scores: true,
       ...body,
     });
+
+    console.log("query body:", JSON.stringify(body, null, 2));
 
     return {
       navigation: {
@@ -460,14 +449,16 @@ export class SearchService {
             order: direction,
           },
         },
+        { _score: { order: "desc" } },
       ];
     }
 
     if (field === "_score") {
-      direction = "desc";
+      return undefined; // 🔥 let ES handle default scoring sort
     }
 
-    return [{ [field]: { order: direction } }];
+    return [{ [field]: { order: direction } },
+    { _score: { order: "desc" } }];
   }
 
   private _getSortField(sortBy: string, lang: string): string {
