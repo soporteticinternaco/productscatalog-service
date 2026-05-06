@@ -129,7 +129,7 @@ export class ProductsController {
     @Query("l3Id") l3Id?: string,
     @Query("id") id?: string,
     @Query("visibility") visibility: number = 0,
-    @Query("page") page: number = 1,
+    @Query("page") page: number = 0,
     @Query("size") size: number = 12,
     @Query("sortBy") sortBy?: string,
     @Query("type") type?: string,
@@ -211,10 +211,10 @@ export class ProductsController {
 
     response.navigation = {
       ...response.navigation,
-      firstPage: buildUrl(1),
-      lastPage: buildUrl(lastPage),
-      previousPage: page > 1 ? buildUrl(page - 1) : null,
-      nextPage: page < lastPage ? buildUrl(page + 1) : null,
+      firstPage: buildUrl(0),
+      lastPage: buildUrl(Math.max(0, lastPage - 1)),
+      previousPage: page > 0 ? buildUrl(page - 1) : null,
+      nextPage: page < lastPage - 1 ? buildUrl(page + 1) : null,
     };
 
     //console.log("RESPONSE", JSON.stringify(response.data, null, 2));

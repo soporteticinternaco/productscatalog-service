@@ -28,7 +28,7 @@ export class SearchService {
    */
   async search(
     lang: string,
-    page: number = 1,
+    page: number = 0,
     limit: number = 10,
     filters: ProductSearchFilters = { deleted: false },
     q?: string,
@@ -190,7 +190,7 @@ export class SearchService {
         },
       ];
 
-      // ✅ Minimal fuzziness for recall (ONLY ONE CLAUSE)
+      // Minimal fuzziness for recall (ONLY ONE CLAUSE)
       if (isFuzzy) {
         mainQueries.push({
           match: {
@@ -221,7 +221,7 @@ export class SearchService {
                     prefix: {
                       [`description.${lang}.keyword`]: {
                         value: q,
-                        boost: 100,
+                        boost: 500,
                         case_insensitive: true,
                       },
                     },
@@ -230,7 +230,7 @@ export class SearchService {
                     prefix: {
                       "supplier_name.keyword": {
                         value: q,
-                        boost: 80,
+                        boost: 300,
                         case_insensitive: true,
                       },
                     },
@@ -245,7 +245,7 @@ export class SearchService {
 
             score_mode: "sum",
             boost_mode: "sum",
-            max_boost: 50, // 🔥 prevents score explosion
+            max_boost: 1000, // prevents score explosion
           },
         },
       };
@@ -470,7 +470,7 @@ export class SearchService {
     }
 
     if (field === "_score") {
-      return undefined; // 🔥 let ES handle default scoring sort
+      return undefined; // let ES handle default scoring sort
     }
 
     return [{ [field]: { order: direction } },
