@@ -95,6 +95,7 @@ export class SearchService {
                   fields: [
                     `description.${lang}`,
                     `description.${lang}.normalized`,
+                    `description.${lang}.stemmed`,
                     `short_description.${lang}`,
                     "supplier_name",
                     "supplier_name.normalized",
@@ -102,6 +103,23 @@ export class SearchService {
                   ],
                   operator: "and",
                   boost: 25,
+                },
+              },
+              {
+                match_phrase: {
+                  [`description.${lang}`]: {
+                    query: q,
+                    boost: 50,
+                  },
+                },
+              },
+              {
+                prefix: {
+                  [`description.${lang}.keyword`]: {
+                    value: q,
+                    boost: 60,
+                    case_insensitive: true,
+                  },
                 },
               },
               {
