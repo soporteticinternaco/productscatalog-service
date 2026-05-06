@@ -94,8 +94,10 @@ export class SearchService {
                   type: "cross_fields",
                   fields: [
                     `description.${lang}`,
+                    `description.${lang}.normalized`,
                     `short_description.${lang}`,
                     "supplier_name",
+                    "supplier_name.normalized",
                     `level3Name.${lang}`,
                   ],
                   operator: "and",
@@ -132,6 +134,15 @@ export class SearchService {
                   supplier_name: {
                     query: q,
                     boost: 20,
+                    fuzziness: "AUTO",
+                  },
+                },
+              },
+              {
+                match: {
+                  "supplier_name.normalized": {
+                    query: q,
+                    boost: 15,
                   },
                 },
               },
@@ -163,6 +174,7 @@ export class SearchService {
               `description.${lang}.phonetic`,
               `short_description.${lang}.phonetic`,
               `level3Name.${lang}.phonetic`,
+              `supplier_name.phonetic`,
             ],
             boost: 4,
           },
