@@ -114,15 +114,6 @@ export class SearchService {
                 },
               },
               {
-                prefix: {
-                  [`description.${lang}.keyword`]: {
-                    value: q,
-                    boost: 60,
-                    case_insensitive: true,
-                  },
-                },
-              },
-              {
                 match_phrase_prefix: {
                   [`description.${lang}`]: {
                     query: q,
@@ -223,6 +214,25 @@ export class SearchService {
                     dis_max: {
                       queries: mainQueries,
                       tie_breaker: 0.1,
+                    },
+                  },
+                  // 🔹 Additive "Starts With" boosts (Bonus points)
+                  {
+                    prefix: {
+                      [`description.${lang}.keyword`]: {
+                        value: q,
+                        boost: 100,
+                        case_insensitive: true,
+                      },
+                    },
+                  },
+                  {
+                    prefix: {
+                      "supplier_name.keyword": {
+                        value: q,
+                        boost: 80,
+                        case_insensitive: true,
+                      },
                     },
                   },
                 ],
