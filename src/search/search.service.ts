@@ -220,7 +220,7 @@ export class SearchService {
                   {
                     prefix: {
                       [`description.${lang}.keyword`]: {
-                        value: q,
+                        value: q.split(" ")[0],
                         boost: 500,
                         case_insensitive: true,
                       },
@@ -229,7 +229,7 @@ export class SearchService {
                   {
                     prefix: {
                       "supplier_name.keyword": {
-                        value: q,
+                        value: q.split(" ")[0],
                         boost: 300,
                         case_insensitive: true,
                       },
