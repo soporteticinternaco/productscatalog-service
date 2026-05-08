@@ -235,6 +235,16 @@ export class SearchService {
                       },
                     },
                   },
+                  // 🔹 Typo-tolerant "Starts With" boost (Fuzzy first word)
+                  {
+                    match: {
+                      [`description.${lang}.first_word`]: {
+                        query: q.split(" ")[0],
+                        fuzziness: "AUTO",
+                        boost: 450,
+                      },
+                    },
+                  },
                 ],
                 minimum_should_match: 1,
                 filter: filtersClause,
