@@ -96,6 +96,7 @@ export class SearchService {
                     `description.${lang}`,
                     `description.${lang}.normalized`,
                     `description.${lang}.stemmed`,
+                    `description.${lang}.iberian`,
                     `short_description.${lang}`,
                     "supplier_name",
                     "supplier_name.normalized",
@@ -108,6 +109,14 @@ export class SearchService {
               {
                 match_phrase: {
                   [`description.${lang}`]: {
+                    query: q,
+                    boost: 50,
+                  },
+                },
+              },
+              {
+                match_phrase: {
+                  [`description.${lang}.iberian`]: {
                     query: q,
                     boost: 50,
                   },
