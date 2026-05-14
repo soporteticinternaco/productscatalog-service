@@ -1,15 +1,16 @@
-import { Controller, Get, Query, Req, HttpCode } from "@nestjs/common";
-import { ApiQuery, ApiResponse, ApiTags } from "@nestjs/swagger";
+import { Controller, Get, Query, Req, Param } from "@nestjs/common";
+import { ApiQuery, ApiResponse, ApiTags, ApiParam } from "@nestjs/swagger";
 import { SearchService } from "./search.service";
-import { GetCategoriesTreeResponse, ProductSearchResponse } from "../dto";
+import { ProductSearchResponse } from "../dto";
 import { Request } from "express";
 
 @ApiTags("Search")
-@Controller("search")
-export class SearchController {
-  constructor(private readonly searchService: SearchService) {}
+@Controller("tenants/:tenantId/products")
+export class ProductsController {
+  constructor(private readonly searchService: SearchService) { }
 
-  @Get()
+  @Get("search")
+  @ApiParam({ name: "tenantId", required: true, type: String })
   @ApiQuery({ name: "q", required: false })
   @ApiQuery({
     name: "lang",
@@ -93,9 +94,31 @@ export class SearchController {
     description: "Sort by field",
     example: "price+",
   })
+  @ApiQuery({
+    name: "type",
+    type: String,
+    required: false,
+    description: "Product type",
+    example: "own",
+  })
+  @ApiQuery({
+    name: "grouping",
+    type: Boolean,
+    required: false,
+    description: "Group products by grouping_code",
+    example: false,
+  })
+  @ApiQuery({
+    name: "rate",
+    type: String,
+    required: false,
+    description: "Product rate ID",
+    example: "R1",
+  })
   @ApiResponse({ status: 200, description: "Array of products" })
   async search(
     @Req() req: Request,
+    @Param("tenantId") tenantId: string,
     @Query("q") q?: string,
     @Query("lang") lang: string = "es",
     @Query("supplierId") supplierId?: string,
@@ -106,50 +129,73 @@ export class SearchController {
     @Query("l3Id") l3Id?: string,
     @Query("id") id?: string,
     @Query("visibility") visibility: number = 0,
-    @Query("page") page: number = 1,
+    @Query("page") page: number = 0,
     @Query("size") size: number = 12,
     @Query("sortBy") sortBy?: string,
+    @Query("type") type?: string,
+    @Query("grouping") grouping: boolean = false,
+    @Query("rate") rate?: string,
   ): Promise<ProductSearchResponse> {
-    if (!page) {
-      page = 0;
-    }
+    page = Number(page) || 0;
+    size = Number(size) || 20;
+    visibility = Number(visibility) || 0;
+    const isGrouping = String(grouping) === "true";
 
-    if (!size) {
-      size = 1000;
-    }
-
-    if (lang) {
-      lang = lang.toLowerCase();
-    }
-
-    console.log("=====> ", "(" + sortBy + ")");
-
-    const response = await this.searchService.search(
-      q || "",
-      lang || "es",
+    const result = await this.searchService.search(
+      lang,
       page,
       size,
       {
+        tenantId,
         supplierId,
         ref,
         ean,
         l1Id,
         l2Id,
         l3Id,
-        visibility,
         id,
+        visibility,
+        type,
+        grouping: isGrouping,
+        rate,
       },
+      q,
       sortBy,
     );
 
-    const baseUrl = `${req.protocol}://${req.get("host")}${req.baseUrl}${req.path}`;
-    const lastPage = response?.navigation?.total
-      ? Math.max(1, Math.ceil(response?.navigation?.total / size))
-      : 0;
+    const total = result.navigation?.total || 0;
+    const count = result.navigation?.count || 0;
+    const data = result.data || [];
+
+    const lastPage =
+      total > 0
+        ? total % size === 0
+          ? total / size
+          : Math.floor(total / size) + 1
+        : 0;
+
+    const protocol = req.protocol;
+    const host = req.get("host");
+    const path = req.originalUrl.split("?").shift();
+    const baseUrl = `${protocol}://${host}${path}`;
+
+    const response: ProductSearchResponse = {
+      navigation: {
+        total,
+        page,
+        limit: size,
+        count,
+        firstPage: "",
+        lastPage: "",
+        previousPage: null,
+        nextPage: null,
+      },
+      data,
+    };
 
     const buildUrl = (p: number) =>
       `${baseUrl}?lang=${encodeURIComponent(lang)}&page=${p}&size=${size}` +
-      (q ? `query=${encodeURIComponent(q)}` : "") +
+      (q ? `&q=${encodeURIComponent(q)}` : "") +
       (supplierId ? `&supplierId=${supplierId}` : "") +
       (ref ? `&ref=${ref}` : "") +
       (ean ? `&ean=${ean}` : "") +
@@ -158,78 +204,21 @@ export class SearchController {
       (l3Id ? `&l3Id=${l3Id}` : "") +
       (id ? `&id=${id}` : "") +
       (visibility ? `&visibility=${visibility}` : "") +
-      (sortBy ? `&sortBy=${sortBy}` : "");
+      (sortBy ? `&sortBy=${sortBy}` : "") +
+      (type ? `&type=${type}` : "") +
+      (grouping ? `&grouping=${grouping}` : "") +
+      (rate ? `&rate=${rate}` : "");
 
     response.navigation = {
       ...response.navigation,
-      firstPage: buildUrl(1),
-      lastPage: buildUrl(lastPage),
-      previousPage: page > 1 ? buildUrl(page - 1) : null,
-      nextPage: page < lastPage ? buildUrl(page + 1) : null,
+      firstPage: buildUrl(0),
+      lastPage: buildUrl(Math.max(0, lastPage - 1)),
+      previousPage: page > 0 ? buildUrl(page - 1) : null,
+      nextPage: page < lastPage - 1 ? buildUrl(page + 1) : null,
     };
 
-    return response;
-  }
+    //console.log("RESPONSE", JSON.stringify(response.data, null, 2));
 
-  @Get("categories-tree")
-  @ApiQuery({ name: "tenantId", required: true })
-  @ApiQuery({
-    name: "lang",
-    required: false,
-    enum: ["ca", "en", "es", "fr", "gl", "pt"],
-  })
-  @ApiQuery({
-    name: "supplierIds",
-    type: String,
-    required: false,
-    description: "Supplier Ids",
-    example: "",
-  })
-  @ApiQuery({
-    name: "l1Id",
-    type: String,
-    required: false,
-    description: "Level1 cat Id",
-    example: "06",
-  })
-  @ApiQuery({
-    name: "l2Id",
-    type: String,
-    required: false,
-    description: "Level2 cat Id",
-    example: "0604",
-  })
-  @ApiQuery({
-    name: "l3Id",
-    type: String,
-    required: false,
-    description: "Level3 cat Id",
-    example: "060406",
-  })
-  @ApiQuery({
-    name: "visibility",
-    type: Number,
-    required: false,
-    description: "Client visibility",
-    example: 0,
-  })
-  @HttpCode(200)
-  async getCategoriesTree(
-    @Req() req: Request,
-    @Query("tenantId") tenantId: string,
-    @Query("lang") lang?: string,
-    @Query("supplierIds") supplierIds?: string[],
-    @Query("lId") level1Id?: string,
-    @Query("l2Id") level2Id?: string,
-    @Query("l3Id") level3Id?: string,
-    @Query("visibility") visibility: number = 0,
-  ): Promise<GetCategoriesTreeResponse> {
-    const trees = await this.searchService.getCategoriesTree(
-      tenantId,
-      visibility || 0,
-      lang || "es",
-      supplierIds,
-    );
-    return { data: trees };
+    return response;
   }
 }

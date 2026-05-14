@@ -1,9 +1,11 @@
 import { Module } from '@nestjs/common';
-import { SearchController } from './search.controller';
+import { ProductsController } from './products.controller';
+import { CategoriesController } from './categories.controller';
 import { SearchService } from './search.service';
+import { ElasticService } from './elastic.service';
 
 @Module({
-  controllers: [SearchController],
-  providers: [SearchService],
+  controllers: [ProductsController, CategoriesController],
+  providers: [SearchService, ElasticService],
 })
 export class SearchModule {}
