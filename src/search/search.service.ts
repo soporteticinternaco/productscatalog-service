@@ -48,8 +48,11 @@ export class SearchService {
       "supplier_name",
       `description.${lang}`,
       `short_description.${lang}`,
+      "level1",
       `level1Name.${lang}`,
+      "level2",
       `level2Name.${lang}`,
+      "level3",
       `level3Name.${lang}`,
       "discount1",
       "discount2",
@@ -66,16 +69,115 @@ export class SearchService {
         `container_type.${lang}`,
         "step",
         "main_picture_url",
-        "main_picture_thumb_url",
-        "level1",
-        "level2",
-        "level3"
+        "main_picture_thumb_url"
       );
     }
 
-    const filtersClause = this._buildFilters(filters);
+    const query = this._buildSearchQuery(lang, q, filters);
 
-    let body: Record<string, any>;
+    let body: Record<string, any> = {
+      _source: response_fields,
+      query,
+    };
+
+    const sortClause = this._buildSort(lang, sortBy, filters);
+    if (sortClause) body.sort = sortClause;
+
+    const isGrouping = filters.grouping && (!filters.type || filters.type === "own");
+
+    if (isGrouping) {
+      body.collapse = {
+        field: "grouping_code",
+        inner_hits: {
+          name: "grouped_items",
+          size: 10,
+          sort: [{ _score: "desc" }]
+        },
+      };
+
+      body.aggs = {
+        total_groups: {
+          cardinality: {
+            field: "grouping_code",
+            precision_threshold: 1000,
+          },
+        },
+      };
+    }
+    /* if (q) {
+      body.min_score = 3; // 🔥 tune this (start 3–10)
+    }*/
+
+    const fetchSize = limit;
+    const from = page * limit;
+
+    const result = await this.client.search({
+      index,
+      from,
+      size: fetchSize,
+      track_scores: true,
+      track_total_hits: isGrouping ? false : 10000,
+      ...body,
+    });
+
+    console.log("query body:", JSON.stringify(body, null, 2));
+
+    return {
+      navigation: {
+        total: isGrouping
+          ? ((result as any).aggregations?.total_groups?.value ?? (
+            result.hits.total instanceof Object
+              ? result.hits.total.value
+              : result.hits.total
+          ))
+          : (
+            result.hits.total instanceof Object
+              ? result.hits.total.value
+              : result.hits.total
+          ),
+        page,
+        limit,
+        count: isGrouping
+          ? Math.min(result.hits.hits.length, limit)
+          : result.hits.hits.length,
+      },
+      data: (isGrouping ? result.hits.hits.slice(0, limit) : result.hits.hits).map((hit: any) => {
+        const src = hit._source || {};
+        const flattened = this._flattenLangFields(
+          src,
+          lang,
+        ) as ProductSearchResult;
+
+        const applyRatePrice = (item: any, rawSrc: any) => {
+          if (filters.rate && (!filters.type || filters.type === "own")) {
+            const rateData = rawSrc.rates?.find((r: any) => r.id === filters.rate);
+            if (rateData) {
+              item.net_price = rateData.price;
+            }
+          }
+          delete item.rates;
+          return item;
+        };
+
+        if (hit.inner_hits && hit.inner_hits.grouped_items) {
+          flattened.grouped_items = hit.inner_hits.grouped_items.hits.hits
+            .filter((innerHit: any) => innerHit._id !== hit._id)
+            .map((innerHit: any) => {
+              const innerFlattened = this._flattenLangFields(innerHit._source, lang) as any;
+              return applyRatePrice(innerFlattened, innerHit._source);
+            });
+        }
+
+        applyRatePrice(flattened, src);
+
+        return flattened;
+      }),
+    };
+  }
+
+  private _buildSearchQuery(lang: string, q: string | undefined, filters: ProductSearchFilters) {
+    const isFuzzy = !!q && q.length >= 3;
+    const filtersClause = this._buildFilters(filters);
 
     if (q && q.length > 0) {
       const mainQueries: any[] = [
@@ -212,168 +314,158 @@ export class SearchService {
         });
       }
 
-      body = {
-        _source: response_fields,
-        query: {
-          function_score: {
-            query: {
-              bool: {
-                should: [
-                  {
-                    dis_max: {
-                      queries: mainQueries,
-                      tie_breaker: 0.1,
+      return {
+        function_score: {
+          query: {
+            bool: {
+              should: [
+                {
+                  dis_max: {
+                    queries: mainQueries,
+                    tie_breaker: 0.1,
+                  },
+                },
+                // 🔹 Additive "Starts With" boosts (Bonus points)
+                {
+                  prefix: {
+                    [`description.${lang}.keyword`]: {
+                      value: q.split(" ")[0],
+                      boost: 500,
+                      case_insensitive: true,
                     },
                   },
-                  // 🔹 Additive "Starts With" boosts (Bonus points)
-                  {
-                    prefix: {
-                      [`description.${lang}.keyword`]: {
-                        value: q.split(" ")[0],
-                        boost: 500,
-                        case_insensitive: true,
-                      },
+                },
+                {
+                  prefix: {
+                    "supplier_name.keyword": {
+                      value: q.split(" ")[0],
+                      boost: 300,
+                      case_insensitive: true,
                     },
                   },
-                  {
-                    prefix: {
-                      "supplier_name.keyword": {
-                        value: q.split(" ")[0],
-                        boost: 300,
-                        case_insensitive: true,
-                      },
+                },
+                // 🔹 Typo-tolerant "Starts With" boost (Fuzzy first word)
+                {
+                  match: {
+                    [`description.${lang}.first_word`]: {
+                      query: q.split(" ")[0],
+                      fuzziness: "AUTO",
+                      boost: 450,
                     },
                   },
-                  // 🔹 Typo-tolerant "Starts With" boost (Fuzzy first word)
-                  {
-                    match: {
-                      [`description.${lang}.first_word`]: {
-                        query: q.split(" ")[0],
-                        fuzziness: "AUTO",
-                        boost: 450,
-                      },
-                    },
-                  },
-                ],
-                minimum_should_match: 1,
-                filter: filtersClause,
-              },
+                },
+              ],
+              minimum_should_match: 1,
+              filter: filtersClause,
             },
-
-            functions: [], // Consolidate fuzzy matches in main query for better performance
-
-            score_mode: "sum",
-            boost_mode: "sum",
-            max_boost: 1000, // prevents score explosion
           },
+
+          functions: [], // Consolidate fuzzy matches in main query for better performance
+
+          score_mode: "sum" as const,
+          boost_mode: "sum" as const,
+          max_boost: 1000, // prevents score explosion
         },
       };
-
-
     } else {
-      body = {
-        _source: response_fields,
-        query: {
-          bool: {
-            filter: filtersClause,
-          },
+      return {
+        bool: {
+          filter: filtersClause,
         },
       };
     }
+  }
 
-    const sortClause = this._buildSort(lang, sortBy, filters);
-    if (sortClause) body.sort = sortClause;
+  async searchCategoriesCount(
+    lang: string,
+    filters: ProductSearchFilters = { deleted: false },
+    q?: string,
+  ): Promise<any[]> {
+    const tenantId = filters.tenantId?.toLowerCase();
+    const index = `productscatalog-${tenantId}-products`;
+    lang = lang.toLowerCase();
 
-    const isGrouping = filters.grouping && (!filters.type || filters.type === "own");
+    const query = this._buildSearchQuery(lang, q, filters);
 
-    if (isGrouping) {
-      body.collapse = {
-        field: "grouping_code",
-        inner_hits: {
-          name: "grouped_items",
-          size: 10,
-          sort: [{ _score: "desc" }]
-        },
-      };
-
-      body.aggs = {
-        total_groups: {
-          cardinality: {
-            field: "grouping_code",
-            precision_threshold: 1000,
-          },
-        },
-      };
-    }
-    /* if (q) {
-      body.min_score = 3; // 🔥 tune this (start 3–10)
-    }*/
-
-    const fetchSize = limit;
-    const from = page * limit;
+    const body = {
+      query,
+      size: 0,
+      aggs: {
+        level1: {
+          terms: { field: "level1.keyword", size: 1000 },
+          aggs: {
+            level1Name: { top_hits: { _source: [`level1Name.${lang}`], size: 1 } },
+            level2: {
+              terms: { field: "level2.keyword", size: 1000 },
+              aggs: {
+                level2Name: { top_hits: { _source: [`level2Name.${lang}`], size: 1 } },
+                level3: {
+                  terms: { field: "level3.keyword", size: 1000 },
+                  aggs: {
+                    level3Name: { top_hits: { _source: [`level3Name.${lang}`], size: 1 } },
+                    ...(filters.type !== "edp" ? {
+                      unique_groups: {
+                        cardinality: {
+                          field: "grouping_code",
+                          precision_threshold: 1000,
+                        },
+                      },
+                    } : {}),
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    };
 
     const result = await this.client.search({
       index,
-      from,
-      size: fetchSize,
-      track_scores: true,
-      track_total_hits: isGrouping ? false : 10000,
-      ...body,
+      body,
     });
 
-    console.log("query body:", JSON.stringify(body, null, 2));
+    const categories: any[] = [];
+    const aggregations = result.aggregations as any;
 
-    return {
-      navigation: {
-        total: isGrouping
-          ? ((result as any).aggregations?.total_groups?.value ?? (
-            result.hits.total instanceof Object
-              ? result.hits.total.value
-              : result.hits.total
-          ))
-          : (
-            result.hits.total instanceof Object
-              ? result.hits.total.value
-              : result.hits.total
-          ),
-        page,
-        limit,
-        count: isGrouping
-          ? Math.min(result.hits.hits.length, limit)
-          : result.hits.hits.length,
-      },
-      data: (isGrouping ? result.hits.hits.slice(0, limit) : result.hits.hits).map((hit: any) => {
-        const src = hit._source || {};
-        const flattened = this._flattenLangFields(
-          src,
-          lang,
-        ) as ProductSearchResult;
+    if (aggregations && aggregations.level1 && aggregations.level1.buckets) {
+      for (const l1 of aggregations.level1.buckets) {
+        const level1 = l1.key;
+        const level1NameObj = l1.level1Name?.hits?.hits?.[0]?._source?.level1Name;
+        const level1Name = level1NameObj ? level1NameObj[lang] : undefined;
 
-        const applyRatePrice = (item: any, rawSrc: any) => {
-          if (filters.rate && (!filters.type || filters.type === "own")) {
-            const rateData = rawSrc.rates?.find((r: any) => r.id === filters.rate);
-            if (rateData) {
-              item.net_price = rateData.price;
+        if (l1.level2 && l1.level2.buckets) {
+          for (const l2 of l1.level2.buckets) {
+            const level2 = l2.key;
+            const level2NameObj = l2.level2Name?.hits?.hits?.[0]?._source?.level2Name;
+            const level2Name = level2NameObj ? level2NameObj[lang] : undefined;
+
+            if (l2.level3 && l2.level3.buckets) {
+              for (const l3 of l2.level3.buckets) {
+                const level3 = l3.key;
+                const level3NameObj = l3.level3Name?.hits?.hits?.[0]?._source?.level3Name;
+                const level3Name = level3NameObj ? level3NameObj[lang] : undefined;
+                const count = (filters.type !== "edp" && l3.unique_groups?.value > 0)
+                  ? l3.unique_groups.value
+                  : l3.doc_count;
+
+                categories.push({
+                  level1,
+                  level1Name,
+                  level2,
+                  level2Name,
+                  level3,
+                  level3Name,
+                  count,
+                });
+              }
             }
           }
-          delete item.rates;
-          return item;
-        };
-
-        if (hit.inner_hits && hit.inner_hits.grouped_items) {
-          flattened.grouped_items = hit.inner_hits.grouped_items.hits.hits
-            .filter((innerHit: any) => innerHit._id !== hit._id)
-            .map((innerHit: any) => {
-              const innerFlattened = this._flattenLangFields(innerHit._source, lang) as any;
-              return applyRatePrice(innerFlattened, innerHit._source);
-            });
         }
+      }
+    }
 
-        applyRatePrice(flattened, src);
-
-        return flattened;
-      }),
-    };
+    return categories;
   }
 
   private _buildFilters(filters?: ProductSearchFilters) {
