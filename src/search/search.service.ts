@@ -406,10 +406,12 @@ export class SearchService {
               weight: 600,
             },
             {
-              // Guard the first-word bonus with the same full-query cross-fields
-              // check used by the +700 prefix bonus: a product whose first word
-              // happens to match the first query term should not be rewarded
-              // unless all query terms actually appear in the document.
+              // For single-word queries only the fuzzy first-word match is
+              // required (typo recovery: "taldro" → "taladro").
+              // For multi-word queries the cross-fields AND guard is also
+              // required so a product that only matches the first term of the
+              // query (e.g. "Cesto de leña" for "cesto vendimia") doesn't
+              // collect this bonus.
               filter: {
                 bool: {
                   must: [
@@ -421,19 +423,21 @@ export class SearchService {
                         },
                       },
                     },
-                    {
-                      multi_match: {
-                        query: q,
-                        fields: [
-                          `description.${lang}`,
-                          `description.${lang}.normalized`,
-                          `short_description.${lang}`,
-                          `tags.${lang}`,
-                        ],
-                        type: "cross_fields",
-                        operator: "and",
+                    ...(q.includes(" ") ? [
+                      {
+                        multi_match: {
+                          query: q,
+                          fields: [
+                            `description.${lang}`,
+                            `description.${lang}.normalized`,
+                            `short_description.${lang}`,
+                            `tags.${lang}`,
+                          ],
+                          type: "cross_fields",
+                          operator: "and",
+                        },
                       },
-                    },
+                    ] : []),
                   ],
                 },
               },
