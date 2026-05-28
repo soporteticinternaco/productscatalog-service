@@ -361,11 +361,30 @@ export class SearchService {
           functions: [
             {
               filter: {
-                prefix: {
-                  [`description.${lang}.keyword`]: {
-                    value: q.split(" ")[0],
-                    case_insensitive: true,
-                  },
+                bool: {
+                  must: [
+                    {
+                      prefix: {
+                        [`description.${lang}.keyword`]: {
+                          value: q.split(" ")[0],
+                          case_insensitive: true,
+                        },
+                      },
+                    },
+                    {
+                      multi_match: {
+                        query: q,
+                        fields: [
+                          `description.${lang}`,
+                          `description.${lang}.normalized`,
+                          `short_description.${lang}`,
+                          `tags.${lang}`,
+                        ],
+                        type: "cross_fields",
+                        operator: "and",
+                      },
+                    },
+                  ],
                 },
               },
               weight: 700,
@@ -377,18 +396,45 @@ export class SearchService {
               weight: 650,
             },
             {
+              // Only award the tags bonus when ALL query terms appear in tags —
+              // a partial OR match would fire for any product that shares a
+              // single token with the query (e.g. "cesto" matching "Cesto de
+              // leña" for a "cesto vendimia" query).
               filter: {
-                match: { [`tags.${lang}`]: { query: q } },
+                match: { [`tags.${lang}`]: { query: q, operator: "and" } },
               },
               weight: 600,
             },
             {
+              // Guard the first-word bonus with the same full-query cross-fields
+              // check used by the +700 prefix bonus: a product whose first word
+              // happens to match the first query term should not be rewarded
+              // unless all query terms actually appear in the document.
               filter: {
-                match: {
-                  [`description.${lang}.first_word`]: {
-                    query: q.split(" ")[0],
-                    fuzziness: 1,
-                  },
+                bool: {
+                  must: [
+                    {
+                      match: {
+                        [`description.${lang}.first_word`]: {
+                          query: q.split(" ")[0],
+                          fuzziness: 1,
+                        },
+                      },
+                    },
+                    {
+                      multi_match: {
+                        query: q,
+                        fields: [
+                          `description.${lang}`,
+                          `description.${lang}.normalized`,
+                          `short_description.${lang}`,
+                          `tags.${lang}`,
+                        ],
+                        type: "cross_fields",
+                        operator: "and",
+                      },
+                    },
+                  ],
                 },
               },
               weight: 450,
