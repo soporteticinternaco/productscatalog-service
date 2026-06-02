@@ -195,7 +195,7 @@ export class SearchService {
             tie_breaker: 0.1,
             queries: [
               {
-                multi_match: {
+                multi_match: ({
                   query: q,
                   type: "cross_fields",
                   fields: [
@@ -211,7 +211,7 @@ export class SearchService {
                   ],
                   operator: "and",
                   boost: 25,
-                },
+                }) as any,
               },
               {
                 match_phrase: {
@@ -436,11 +436,11 @@ export class SearchService {
                           type: "cross_fields",
                           operator: "and",
                         },
-                      },
+                      } as any,
                     ] : []),
                   ],
                 },
-              },
+              } as any,
               weight: 450,
             },
             {
