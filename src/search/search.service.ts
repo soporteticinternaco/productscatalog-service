@@ -104,9 +104,6 @@ export class SearchService {
         },
       };
     }
-    /* if (q) {
-      body.min_score = 3; // 🔥 tune this (start 3–10)
-    }*/
 
     const fetchSize = limit;
     const from = page * limit;
@@ -117,10 +114,17 @@ export class SearchService {
       size: fetchSize,
       track_scores: true,
       track_total_hits: isGrouping ? false : 10000,
+      explain: process.env.ES_EXPLAIN === "1",
       ...body,
     });
 
     console.log("query body:", JSON.stringify(body, null, 2));
+    if (process.env.ES_EXPLAIN === "1") {
+      (result.hits.hits as any[]).slice(0, 5).forEach((hit: any) => {
+        console.log(`\n--- EXPLAIN: ${hit._source?.description?.[lang] ?? hit._id} (score: ${hit._score}) ---`);
+        console.log(JSON.stringify(hit._explanation, null, 2));
+      });
+    }
 
     return {
       navigation: {
@@ -191,7 +195,7 @@ export class SearchService {
             tie_breaker: 0.1,
             queries: [
               {
-                multi_match: {
+                multi_match: ({
                   query: q,
                   type: "cross_fields",
                   fields: [
@@ -203,10 +207,11 @@ export class SearchService {
                     "supplier_name",
                     "supplier_name.normalized",
                     `level3Name.${lang}`,
+                    `tags.${lang}`,
                   ],
                   operator: "and",
                   boost: 25,
-                },
+                }) as any,
               },
               {
                 match_phrase: {
@@ -229,7 +234,7 @@ export class SearchService {
                   [`description.${lang}`]: {
                     query: q,
                     boost: 40,
-                    max_expansions: 10, // 🔥 optimization
+                    max_expansions: 10,
                   },
                 },
               },
@@ -246,6 +251,14 @@ export class SearchService {
                   [`short_description.${lang}`]: {
                     query: q,
                     boost: 6,
+                  },
+                },
+              },
+              {
+                match: {
+                  [`tags.${lang}`]: {
+                    query: q,
+                    boost: 8,
                   },
                 },
               },
@@ -295,20 +308,25 @@ export class SearchService {
               `short_description.${lang}.phonetic`,
               `level3Name.${lang}.phonetic`,
               `supplier_name.phonetic`,
+              `tags.${lang}.phonetic`,
             ],
             boost: 4,
           },
         },
       ];
 
-      // Minimal fuzziness for recall (ONLY ONE CLAUSE)
+      // Minimal fuzziness for recall (ONLY ONE CLAUSE).
+      // fuzziness: 1 instead of AUTO — AUTO allows 2 edits for words ≥6 chars,
+      // which causes false matches between unrelated Spanish words that happen
+      // to be 2 edits apart (e.g. "palanca" ↔ "plancha"). fuzziness: 1 still
+      // handles single-char typos like "hescalera"→"escalera" (edit distance 1).
       if (isFuzzy) {
         mainQueries.push({
           match: {
             [`description.${lang}`]: {
               query: q,
-              fuzziness: "AUTO",
-              boost: 10, // Increased boost to compensate for removing function_score functions
+              fuzziness: 1,
+              boost: 10,
             },
           },
         });
@@ -325,46 +343,122 @@ export class SearchService {
                     tie_breaker: 0.1,
                   },
                 },
-                // 🔹 Additive "Starts With" boosts (Bonus points)
-                {
-                  prefix: {
-                    [`description.${lang}.keyword`]: {
-                      value: q.split(" ")[0],
-                      boost: 500,
-                      case_insensitive: true,
-                    },
-                  },
-                },
-                {
-                  prefix: {
-                    "supplier_name.keyword": {
-                      value: q.split(" ")[0],
-                      boost: 300,
-                      case_insensitive: true,
-                    },
-                  },
-                },
-                // 🔹 Typo-tolerant "Starts With" boost (Fuzzy first word)
-                {
-                  match: {
-                    [`description.${lang}.first_word`]: {
-                      query: q.split(" ")[0],
-                      fuzziness: "AUTO",
-                      boost: 450,
-                    },
-                  },
-                },
               ],
               minimum_should_match: 1,
               filter: filtersClause,
             },
           },
 
-          functions: [], // Consolidate fuzzy matches in main query for better performance
+          // Additive fixed-value bonuses via function weights.
+          // These are field-length-independent: weight is added as-is,
+          // unlike `boost` on a match query which multiplies BM25.
+          // Priority stack (all matching functions are summed):
+          //   700 — description starts with query term (prefix)
+          //   650 — description contains query term exactly
+          //   600 — tags exact match
+          //   450 — description first_word fuzzy (typo tolerance)
+          //   300 — supplier name starts with query term
+          functions: [
+            {
+              filter: {
+                bool: {
+                  must: [
+                    {
+                      prefix: {
+                        [`description.${lang}.keyword`]: {
+                          value: q.split(" ")[0],
+                          case_insensitive: true,
+                        },
+                      },
+                    },
+                    {
+                      multi_match: {
+                        query: q,
+                        fields: [
+                          `description.${lang}`,
+                          `description.${lang}.normalized`,
+                          `short_description.${lang}`,
+                          `tags.${lang}`,
+                        ],
+                        type: "cross_fields",
+                        operator: "and",
+                      },
+                    },
+                  ],
+                },
+              },
+              weight: 700,
+            },
+            {
+              filter: {
+                match: { [`description.${lang}`]: { query: q } },
+              },
+              weight: 650,
+            },
+            {
+              // Only award the tags bonus when ALL query terms appear in tags —
+              // a partial OR match would fire for any product that shares a
+              // single token with the query (e.g. "cesto" matching "Cesto de
+              // leña" for a "cesto vendimia" query).
+              filter: {
+                match: { [`tags.${lang}`]: { query: q, operator: "and" } },
+              },
+              weight: 600,
+            },
+            {
+              // For single-word queries only the fuzzy first-word match is
+              // required (typo recovery: "taldro" → "taladro").
+              // For multi-word queries the cross-fields AND guard is also
+              // required so a product that only matches the first term of the
+              // query (e.g. "Cesto de leña" for "cesto vendimia") doesn't
+              // collect this bonus.
+              filter: {
+                bool: {
+                  must: [
+                    {
+                      match: {
+                        [`description.${lang}.first_word`]: {
+                          query: q.split(" ")[0],
+                          fuzziness: 1,
+                        },
+                      },
+                    },
+                    ...(q.includes(" ") ? [
+                      {
+                        multi_match: {
+                          query: q,
+                          fields: [
+                            `description.${lang}`,
+                            `description.${lang}.normalized`,
+                            `short_description.${lang}`,
+                            `tags.${lang}`,
+                          ],
+                          type: "cross_fields",
+                          operator: "and",
+                        },
+                      } as any,
+                    ] : []),
+                  ],
+                },
+              } as any,
+              weight: 450,
+            },
+            {
+              filter: {
+                prefix: {
+                  "supplier_name.keyword": {
+                    value: q.split(" ")[0],
+                    case_insensitive: true,
+                  },
+                },
+              },
+              weight: 300,
+            },
+          ],
 
           score_mode: "sum" as const,
           boost_mode: "sum" as const,
-          max_boost: 1000, // prevents score explosion
+          max_boost: 3000,
         },
       };
     } else {
