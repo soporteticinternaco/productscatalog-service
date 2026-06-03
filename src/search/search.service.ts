@@ -108,7 +108,7 @@ export class SearchService {
     const fetchSize = limit;
     const from = page * limit;
 
-    const result = await this.client.search({
+    const queryObject = {
       index,
       from,
       size: fetchSize,
@@ -116,9 +116,13 @@ export class SearchService {
       track_total_hits: isGrouping ? false : 10000,
       explain: process.env.ES_EXPLAIN === "1",
       ...body,
-    });
+    }
 
-    console.log("query body:", JSON.stringify(body, null, 2));
+    const result = await this.client.search(queryObject);
+
+    console.log("query body:", JSON.stringify(queryObject, null, 2));
+
+
     if (process.env.ES_EXPLAIN === "1") {
       (result.hits.hits as any[]).slice(0, 5).forEach((hit: any) => {
         console.log(`\n--- EXPLAIN: ${hit._source?.description?.[lang] ?? hit._id} (score: ${hit._score}) ---`);
@@ -126,25 +130,12 @@ export class SearchService {
       });
     }
 
+    const navigation = this._buildNavigation(result, page, limit, isGrouping);
+
+    console.log("navigation", JSON.stringify(navigation, null, 2));
+
     return {
-      navigation: {
-        total: isGrouping
-          ? ((result as any).aggregations?.total_groups?.value ?? (
-            result.hits.total instanceof Object
-              ? result.hits.total.value
-              : result.hits.total
-          ))
-          : (
-            result.hits.total instanceof Object
-              ? result.hits.total.value
-              : result.hits.total
-          ),
-        page,
-        limit,
-        count: isGrouping
-          ? Math.min(result.hits.hits.length, limit)
-          : result.hits.hits.length,
-      },
+      navigation,
       data: (isGrouping ? result.hits.hits.slice(0, limit) : result.hits.hits).map((hit: any) => {
         const src = hit._source || {};
         const flattened = this._flattenLangFields(
@@ -176,6 +167,29 @@ export class SearchService {
 
         return flattened;
       }),
+    };
+  }
+
+  private _buildNavigation(
+    result: any,
+    page: number,
+    limit: number,
+    isGrouping: boolean | undefined,
+  ) {
+    const totalHits =
+      result.hits.total instanceof Object
+        ? result.hits.total.value
+        : result.hits.total;
+
+    return {
+      total: isGrouping
+        ? (result.aggregations?.total_groups?.value ?? totalHits)
+        : totalHits,
+      page,
+      limit,
+      count: isGrouping
+        ? Math.min(result.hits.hits.length, limit)
+        : result.hits.hits.length,
     };
   }
 
@@ -316,21 +330,52 @@ export class SearchService {
       ];
 
       // Minimal fuzziness for recall (ONLY ONE CLAUSE).
-      // fuzziness: 1 instead of AUTO — AUTO allows 2 edits for words ≥6 chars,
-      // which causes false matches between unrelated Spanish words that happen
-      // to be 2 edits apart (e.g. "palanca" ↔ "plancha"). fuzziness: 1 still
-      // handles single-char typos like "hescalera"→"escalera" (edit distance 1).
+      // fuzziness: "AUTO:3,100" — 0 edits for tokens < 3 chars, 1 edit for
+      // tokens of 3–99 chars. This prevents short numeric tokens (e.g. "38")
+      // from fuzzy-matching unrelated numbers ("30", edit distance 1) while
+      // still handling single-char typos in real words ("taldro"→"taladro").
       if (isFuzzy) {
         mainQueries.push({
           match: {
             [`description.${lang}`]: {
               query: q,
-              fuzziness: 1,
+              fuzziness: "AUTO:3,100",
               boost: 10,
             },
           },
         });
       }
+
+      // When the query has short tokens (< 3 chars, e.g. "38", "cm") alongside
+      // longer ones, a plain OR match can return documents that only contain the
+      // short token — completely unrelated products (e.g. "30 m" matching "38").
+      // Fix: require at least one long token to also match in the content fields.
+      const queryTokens = q.trim().split(/\s+/);
+      const longTokens = queryTokens.filter((t) => t.length >= 3);
+      const needsLongWordGuard =
+        queryTokens.some((t) => t.length < 3) && longTokens.length > 0;
+
+      const longWordGuard: any[] = needsLongWordGuard
+        ? [
+          {
+            bool: {
+              should: longTokens.map((token) => ({
+                multi_match: {
+                  query: token,
+                  fields: [
+                    `description.${lang}`,
+                    `description.${lang}.normalized`,
+                    `description.${lang}.iberian`,
+                    `short_description.${lang}`,
+                    `tags.${lang}`,
+                  ],
+                },
+              })),
+              minimum_should_match: 1,
+            },
+          },
+        ]
+        : [];
 
       return {
         function_score: {
@@ -345,6 +390,7 @@ export class SearchService {
                 },
               ],
               minimum_should_match: 1,
+              ...(needsLongWordGuard ? { must: longWordGuard } : {}),
               filter: filtersClause,
             },
           },
