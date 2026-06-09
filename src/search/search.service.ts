@@ -35,7 +35,7 @@ export class SearchService {
     sortBy?: string,
   ): Promise<ProductSearchResponse> {
     const tenantId = filters.tenantId?.toLowerCase();
-    const index = `productscatalog-${tenantId}-products`;
+    const index = `productscatalog-${tenantId}-products-current`;
     lang = lang.toLowerCase();
 
     const isFuzzy = !!q && q.length >= 3;
@@ -61,6 +61,8 @@ export class SearchService {
       "net_price_with_margin",
       "vat_amount",
       "rates",
+      "main_picture_url",
+      "main_picture_thumb_url",
     ];
 
     if (filters?.type === "edp") {
@@ -69,7 +71,7 @@ export class SearchService {
         `container_type.${lang}`,
         "step",
         "main_picture_url",
-        "main_picture_thumb_url"
+        "main_picture_thumb_url",
       );
     }
 
@@ -83,7 +85,8 @@ export class SearchService {
     const sortClause = this._buildSort(lang, sortBy, filters);
     if (sortClause) body.sort = sortClause;
 
-    const isGrouping = filters.grouping && (!filters.type || filters.type === "own");
+    const isGrouping =
+      filters.grouping && (!filters.type || filters.type === "own");
 
     if (isGrouping) {
       body.collapse = {
@@ -91,7 +94,7 @@ export class SearchService {
         inner_hits: {
           name: "grouped_items",
           size: 10,
-          sort: [{ _score: "desc" }]
+          sort: [{ _score: "desc" }],
         },
       };
 
@@ -108,7 +111,7 @@ export class SearchService {
     const fetchSize = limit;
     const from = page * limit;
 
-    const result = await this.client.search({
+    const queryObject = {
       index,
       from,
       size: fetchSize,
@@ -116,36 +119,31 @@ export class SearchService {
       track_total_hits: isGrouping ? false : 10000,
       explain: process.env.ES_EXPLAIN === "1",
       ...body,
-    });
+    };
 
-    console.log("query body:", JSON.stringify(body, null, 2));
+    const result = await this.client.search(queryObject);
+
+    console.log("query body:", JSON.stringify(queryObject, null, 2));
+
     if (process.env.ES_EXPLAIN === "1") {
       (result.hits.hits as any[]).slice(0, 5).forEach((hit: any) => {
-        console.log(`\n--- EXPLAIN: ${hit._source?.description?.[lang] ?? hit._id} (score: ${hit._score}) ---`);
+        console.log(
+          `\n--- EXPLAIN: ${hit._source?.description?.[lang] ?? hit._id} (score: ${hit._score}) ---`,
+        );
         console.log(JSON.stringify(hit._explanation, null, 2));
       });
     }
 
+    const navigation = this._buildNavigation(result, page, limit, isGrouping);
+
+    console.log("navigation", JSON.stringify(navigation, null, 2));
+
     return {
-      navigation: {
-        total: isGrouping
-          ? ((result as any).aggregations?.total_groups?.value ?? (
-            result.hits.total instanceof Object
-              ? result.hits.total.value
-              : result.hits.total
-          ))
-          : (
-            result.hits.total instanceof Object
-              ? result.hits.total.value
-              : result.hits.total
-          ),
-        page,
-        limit,
-        count: isGrouping
-          ? Math.min(result.hits.hits.length, limit)
-          : result.hits.hits.length,
-      },
-      data: (isGrouping ? result.hits.hits.slice(0, limit) : result.hits.hits).map((hit: any) => {
+      navigation,
+      data: (isGrouping
+        ? result.hits.hits.slice(0, limit)
+        : result.hits.hits
+      ).map((hit: any) => {
         const src = hit._source || {};
         const flattened = this._flattenLangFields(
           src,
@@ -154,7 +152,9 @@ export class SearchService {
 
         const applyRatePrice = (item: any, rawSrc: any) => {
           if (filters.rate && (!filters.type || filters.type === "own")) {
-            const rateData = rawSrc.rates?.find((r: any) => r.id === filters.rate);
+            const rateData = rawSrc.rates?.find(
+              (r: any) => r.id === filters.rate,
+            );
             if (rateData) {
               item.net_price = rateData.price;
             }
@@ -167,7 +167,10 @@ export class SearchService {
           flattened.grouped_items = hit.inner_hits.grouped_items.hits.hits
             .filter((innerHit: any) => innerHit._id !== hit._id)
             .map((innerHit: any) => {
-              const innerFlattened = this._flattenLangFields(innerHit._source, lang) as any;
+              const innerFlattened = this._flattenLangFields(
+                innerHit._source,
+                lang,
+              ) as any;
               return applyRatePrice(innerFlattened, innerHit._source);
             });
         }
@@ -179,7 +182,34 @@ export class SearchService {
     };
   }
 
-  private _buildSearchQuery(lang: string, q: string | undefined, filters: ProductSearchFilters) {
+  private _buildNavigation(
+    result: any,
+    page: number,
+    limit: number,
+    isGrouping: boolean | undefined,
+  ) {
+    const totalHits =
+      result.hits.total instanceof Object
+        ? result.hits.total.value
+        : result.hits.total;
+
+    return {
+      total: isGrouping
+        ? (result.aggregations?.total_groups?.value ?? totalHits)
+        : totalHits,
+      page,
+      limit,
+      count: isGrouping
+        ? Math.min(result.hits.hits.length, limit)
+        : result.hits.hits.length,
+    };
+  }
+
+  private _buildSearchQuery(
+    lang: string,
+    q: string | undefined,
+    filters: ProductSearchFilters,
+  ) {
     const isFuzzy = !!q && q.length >= 3;
     const filtersClause = this._buildFilters(filters);
 
@@ -195,7 +225,7 @@ export class SearchService {
             tie_breaker: 0.1,
             queries: [
               {
-                multi_match: ({
+                multi_match: {
                   query: q,
                   type: "cross_fields",
                   fields: [
@@ -211,7 +241,7 @@ export class SearchService {
                   ],
                   operator: "and",
                   boost: 25,
-                }) as any,
+                } as any,
               },
               {
                 match_phrase: {
@@ -316,21 +346,52 @@ export class SearchService {
       ];
 
       // Minimal fuzziness for recall (ONLY ONE CLAUSE).
-      // fuzziness: 1 instead of AUTO — AUTO allows 2 edits for words ≥6 chars,
-      // which causes false matches between unrelated Spanish words that happen
-      // to be 2 edits apart (e.g. "palanca" ↔ "plancha"). fuzziness: 1 still
-      // handles single-char typos like "hescalera"→"escalera" (edit distance 1).
+      // fuzziness: "AUTO:3,100" — 0 edits for tokens < 3 chars, 1 edit for
+      // tokens of 3–99 chars. This prevents short numeric tokens (e.g. "38")
+      // from fuzzy-matching unrelated numbers ("30", edit distance 1) while
+      // still handling single-char typos in real words ("taldro"→"taladro").
       if (isFuzzy) {
         mainQueries.push({
           match: {
             [`description.${lang}`]: {
               query: q,
-              fuzziness: 1,
+              fuzziness: "AUTO:3,5",
               boost: 10,
             },
           },
         });
       }
+
+      // When the query has short tokens (< 3 chars, e.g. "38", "cm") alongside
+      // longer ones, a plain OR match can return documents that only contain the
+      // short token — completely unrelated products (e.g. "30 m" matching "38").
+      // Fix: require at least one long token to also match in the content fields.
+      const queryTokens = q.trim().split(/\s+/);
+      const longTokens = queryTokens.filter((t) => t.length >= 3);
+      const needsLongWordGuard =
+        queryTokens.some((t) => t.length < 3) && longTokens.length > 0;
+
+      const longWordGuard: any[] = needsLongWordGuard
+        ? [
+            {
+              bool: {
+                should: longTokens.map((token) => ({
+                  multi_match: {
+                    query: token,
+                    fields: [
+                      `description.${lang}`,
+                      `description.${lang}.normalized`,
+                      `description.${lang}.iberian`,
+                      `short_description.${lang}`,
+                      `tags.${lang}`,
+                    ],
+                  },
+                })),
+                minimum_should_match: 1,
+              },
+            },
+          ]
+        : [];
 
       return {
         function_score: {
@@ -345,6 +406,7 @@ export class SearchService {
                 },
               ],
               minimum_should_match: 1,
+              ...(needsLongWordGuard ? { must: longWordGuard } : {}),
               filter: filtersClause,
             },
           },
@@ -358,6 +420,7 @@ export class SearchService {
           //   600 — tags exact match
           //   450 — description first_word fuzzy (typo tolerance)
           //   300 — supplier name starts with query term
+          //   200 — (multi-word) description matches head term — partial-match tiebreaker
           functions: [
             {
               filter: {
@@ -423,21 +486,23 @@ export class SearchService {
                         },
                       },
                     },
-                    ...(q.includes(" ") ? [
-                      {
-                        multi_match: {
-                          query: q,
-                          fields: [
-                            `description.${lang}`,
-                            `description.${lang}.normalized`,
-                            `short_description.${lang}`,
-                            `tags.${lang}`,
-                          ],
-                          type: "cross_fields",
-                          operator: "and",
-                        },
-                      } as any,
-                    ] : []),
+                    ...(q.includes(" ")
+                      ? [
+                          {
+                            multi_match: {
+                              query: q,
+                              fields: [
+                                `description.${lang}`,
+                                `description.${lang}.normalized`,
+                                `short_description.${lang}`,
+                                `tags.${lang}`,
+                              ],
+                              type: "cross_fields",
+                              operator: "and",
+                            },
+                          } as any,
+                        ]
+                      : []),
                   ],
                 },
               } as any,
@@ -454,6 +519,26 @@ export class SearchService {
               },
               weight: 300,
             },
+            // Multi-word tiebreaker: when no document matches every query term,
+            // prefer the one matching the head (first) term. For "mesa jardin"
+            // this ranks "Mesa Dream - Wengué" (matches "mesa") above "Guante de
+            // jardín" (matches only "jardin"), which otherwise wins on the higher
+            // IDF of the rarer second term. Kept modest so it only orders partial
+            // matches among themselves — full multi-term matches (650 + 700) still
+            // dominate, so this won't resurface "Cesto de leña" for "cesto
+            // vendimia" above true matches.
+            ...(q.includes(" ")
+              ? [
+                  {
+                    filter: {
+                      match: {
+                        [`description.${lang}`]: { query: q.split(" ")[0] },
+                      },
+                    },
+                    weight: 200,
+                  },
+                ]
+              : []),
           ],
 
           score_mode: "sum" as const,
@@ -476,7 +561,7 @@ export class SearchService {
     q?: string,
   ): Promise<any[]> {
     const tenantId = filters.tenantId?.toLowerCase();
-    const index = `productscatalog-${tenantId}-products`;
+    const index = `productscatalog-${tenantId}-products-current`;
     lang = lang.toLowerCase();
 
     const query = this._buildSearchQuery(lang, q, filters);
@@ -488,30 +573,38 @@ export class SearchService {
         level1: {
           terms: { field: "level1.keyword", size: 1000 },
           aggs: {
-            level1Name: { top_hits: { _source: [`level1Name.${lang}`], size: 1 } },
+            level1Name: {
+              top_hits: { _source: [`level1Name.${lang}`], size: 1 },
+            },
             level2: {
               terms: { field: "level2.keyword", size: 1000 },
               aggs: {
-                level2Name: { top_hits: { _source: [`level2Name.${lang}`], size: 1 } },
+                level2Name: {
+                  top_hits: { _source: [`level2Name.${lang}`], size: 1 },
+                },
                 level3: {
                   terms: { field: "level3.keyword", size: 1000 },
                   aggs: {
-                    level3Name: { top_hits: { _source: [`level3Name.${lang}`], size: 1 } },
-                    ...(filters.type !== "edp" ? {
-                      unique_groups: {
-                        cardinality: {
-                          field: "grouping_code",
-                          precision_threshold: 1000,
-                        },
-                      },
-                    } : {}),
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
+                    level3Name: {
+                      top_hits: { _source: [`level3Name.${lang}`], size: 1 },
+                    },
+                    ...(filters.type !== "edp"
+                      ? {
+                          unique_groups: {
+                            cardinality: {
+                              field: "grouping_code",
+                              precision_threshold: 1000,
+                            },
+                          },
+                        }
+                      : {}),
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
     };
 
     const result = await this.client.search({
@@ -525,23 +618,29 @@ export class SearchService {
     if (aggregations && aggregations.level1 && aggregations.level1.buckets) {
       for (const l1 of aggregations.level1.buckets) {
         const level1 = l1.key;
-        const level1NameObj = l1.level1Name?.hits?.hits?.[0]?._source?.level1Name;
+        const level1NameObj =
+          l1.level1Name?.hits?.hits?.[0]?._source?.level1Name;
         const level1Name = level1NameObj ? level1NameObj[lang] : undefined;
 
         if (l1.level2 && l1.level2.buckets) {
           for (const l2 of l1.level2.buckets) {
             const level2 = l2.key;
-            const level2NameObj = l2.level2Name?.hits?.hits?.[0]?._source?.level2Name;
+            const level2NameObj =
+              l2.level2Name?.hits?.hits?.[0]?._source?.level2Name;
             const level2Name = level2NameObj ? level2NameObj[lang] : undefined;
 
             if (l2.level3 && l2.level3.buckets) {
               for (const l3 of l2.level3.buckets) {
                 const level3 = l3.key;
-                const level3NameObj = l3.level3Name?.hits?.hits?.[0]?._source?.level3Name;
-                const level3Name = level3NameObj ? level3NameObj[lang] : undefined;
-                const count = (filters.type !== "edp" && l3.unique_groups?.value > 0)
-                  ? l3.unique_groups.value
-                  : l3.doc_count;
+                const level3NameObj =
+                  l3.level3Name?.hits?.hits?.[0]?._source?.level3Name;
+                const level3Name = level3NameObj
+                  ? level3NameObj[lang]
+                  : undefined;
+                const count =
+                  filters.type !== "edp" && l3.unique_groups?.value > 0
+                    ? l3.unique_groups.value
+                    : l3.doc_count;
 
                 categories.push({
                   level1,
@@ -641,7 +740,10 @@ export class SearchService {
 
     const field = this._getSortField(sortBy, lang);
     if (field === "price") {
-      const rateId = filters.rate && (!filters.type || filters.type === "own") ? filters.rate : null;
+      const rateId =
+        filters.rate && (!filters.type || filters.type === "own")
+          ? filters.rate
+          : null;
       return [
         {
           _script: {
@@ -678,8 +780,7 @@ export class SearchService {
       return undefined; // let ES handle default scoring sort
     }
 
-    return [{ [field]: { order: direction } },
-    { _score: { order: "desc" } }];
+    return [{ [field]: { order: direction } }, { _score: { order: "desc" } }];
   }
 
   private _getSortField(sortBy: string, lang: string): string {
@@ -726,7 +827,7 @@ export class SearchService {
     supplierIds?: string[],
     deleted?: boolean,
   ): Promise<SupplierCategoriesTree[]> {
-    const index = `productscatalog-${tenantId.toLocaleLowerCase()}-products`;
+    const index = `productscatalog-${tenantId.toLocaleLowerCase()}-products-current`;
 
     const filters: Array<Record<string, any>> = [
       { term: { "tenant_id.keyword": tenantId.toLowerCase() } },
@@ -824,7 +925,8 @@ export class SearchService {
                 description: l1Name,
                 children: (l1.level2.buckets || [])
                   .map((l2) => {
-                    const l2Name = l2.level2Name.hits.hits[0]?._source.level2Name[lang] ||
+                    const l2Name =
+                      l2.level2Name.hits.hits[0]?._source.level2Name[lang] ||
                       "";
 
                     return {
@@ -834,7 +936,7 @@ export class SearchService {
                         .map((l3) => {
                           const l3Name =
                             l3.level3Name.hits.hits[0]?._source.level3Name[
-                            lang
+                              lang
                             ] || "";
                           return { id: l3.key, description: l3Name };
                         })
