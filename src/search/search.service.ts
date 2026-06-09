@@ -339,7 +339,7 @@ export class SearchService {
           match: {
             [`description.${lang}`]: {
               query: q,
-              fuzziness: "AUTO:3,100",
+              fuzziness: "AUTO:3,5",
               boost: 10,
             },
           },
@@ -404,6 +404,7 @@ export class SearchService {
           //   600 — tags exact match
           //   450 — description first_word fuzzy (typo tolerance)
           //   300 — supplier name starts with query term
+          //   200 — (multi-word) description matches head term — partial-match tiebreaker
           functions: [
             {
               filter: {
@@ -500,6 +501,26 @@ export class SearchService {
               },
               weight: 300,
             },
+            // Multi-word tiebreaker: when no document matches every query term,
+            // prefer the one matching the head (first) term. For "mesa jardin"
+            // this ranks "Mesa Dream - Wengué" (matches "mesa") above "Guante de
+            // jardín" (matches only "jardin"), which otherwise wins on the higher
+            // IDF of the rarer second term. Kept modest so it only orders partial
+            // matches among themselves — full multi-term matches (650 + 700) still
+            // dominate, so this won't resurface "Cesto de leña" for "cesto
+            // vendimia" above true matches.
+            ...(q.includes(" ")
+              ? [
+                {
+                  filter: {
+                    match: {
+                      [`description.${lang}`]: { query: q.split(" ")[0] },
+                    },
+                  },
+                  weight: 200,
+                },
+              ]
+              : []),
           ],
 
           score_mode: "sum" as const,
@@ -522,7 +543,7 @@ export class SearchService {
     q?: string,
   ): Promise<any[]> {
     const tenantId = filters.tenantId?.toLowerCase();
-    const index = `productscatalog-${tenantId}-products`;
+    const index = `productscatalog-${tenantId}-products-current`;
     lang = lang.toLowerCase();
 
     const query = this._buildSearchQuery(lang, q, filters);
