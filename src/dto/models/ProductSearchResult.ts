@@ -28,5 +28,6 @@ export type ProductSearchResult = {
   sale_price?: number;
   net_price_with_margin?: number;
   vat_amount?: number;
+  characteristics?: Array<{ name: string; value: string }>;
   grouped_items?: ProductSearchResult[];
 };

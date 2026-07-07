@@ -115,6 +115,14 @@ export class ProductsController {
     description: "Product rate ID",
     example: "R1",
   })
+  @ApiQuery({
+    name: "characteristics",
+    type: String,
+    required: false,
+    description:
+      'Selected characteristic facets as a flat "@@"-separated list alternating name, value, name, value, ... (repeat a name to OR its values)',
+    example: "Marca@@G. ACACIO BCN@@Marca@@Bosch",
+  })
   @ApiResponse({ status: 200, description: "Array of products" })
   async search(
     @Req() req: Request,
@@ -135,6 +143,7 @@ export class ProductsController {
     @Query("type") type?: string,
     @Query("grouping") grouping: boolean = false,
     @Query("rate") rate?: string,
+    @Query("characteristics") characteristics?: string,
   ): Promise<ProductSearchResponse> {
     page = Number(page) || 0;
     size = Number(size) || 20;
@@ -158,6 +167,7 @@ export class ProductsController {
         type,
         grouping: isGrouping,
         rate,
+        characteristics,
       },
       q,
       sortBy,
@@ -207,7 +217,10 @@ export class ProductsController {
       (sortBy ? `&sortBy=${sortBy}` : "") +
       (type ? `&type=${type}` : "") +
       (grouping ? `&grouping=${grouping}` : "") +
-      (rate ? `&rate=${rate}` : "");
+      (rate ? `&rate=${rate}` : "") +
+      (characteristics
+        ? `&characteristics=${encodeURIComponent(characteristics)}`
+        : "");
 
     response.navigation = {
       ...response.navigation,
@@ -338,6 +351,148 @@ export class ProductsController {
         rate,
       },
       q,
+    );
+
+    return { data };
+  }
+
+  @Get("search/facets")
+  @ApiParam({ name: "tenantId", required: true, type: String })
+  @ApiQuery({ name: "q", required: false })
+  @ApiQuery({
+    name: "lang",
+    required: false,
+    enum: ["ca", "en", "es", "fr", "gl", "pt"],
+  })
+  @ApiQuery({
+    name: "supplierId",
+    type: String,
+    required: false,
+    description: "Supplier Id",
+    example: "",
+  })
+  @ApiQuery({
+    name: "ref",
+    type: String,
+    required: false,
+    description: "Comma separated  product refs",
+    example: "462",
+  })
+  @ApiQuery({
+    name: "ean",
+    type: String,
+    required: false,
+    description: "Comma separated product eans",
+    example: "3253561801174",
+  })
+  @ApiQuery({
+    name: "l1Id",
+    type: String,
+    required: false,
+    description: "Level1 cat Id",
+    example: "06",
+  })
+  @ApiQuery({
+    name: "l2Id",
+    type: String,
+    required: false,
+    description: "Level2 cat Id",
+    example: "0604",
+  })
+  @ApiQuery({
+    name: "l3Id",
+    type: String,
+    required: false,
+    description: "Level3 cat Id",
+    example: "060406",
+  })
+  @ApiQuery({
+    name: "id",
+    type: String,
+    required: false,
+    description: "Comma separated product ids",
+    example: '"060406","AS234"',
+  })
+  @ApiQuery({
+    name: "visibility",
+    type: Number,
+    required: false,
+    description: "Client visibility",
+    example: 0,
+  })
+  @ApiQuery({
+    name: "type",
+    type: String,
+    required: false,
+    description: "Product type",
+    example: "own",
+  })
+  @ApiQuery({
+    name: "rate",
+    type: String,
+    required: false,
+    description: "Product rate ID",
+    example: "R1",
+  })
+  @ApiQuery({
+    name: "characteristics",
+    type: String,
+    required: false,
+    description:
+      'Already-selected characteristic facets as a flat "@@"-separated list alternating name, value, name, value, ...',
+    example: "Marca@@G. ACACIO BCN",
+  })
+  @ApiQuery({
+    name: "includeSingleValue",
+    type: Boolean,
+    required: false,
+    description:
+      "Whether to include facet filters that have only one possible value. Defaults to false.",
+    example: false,
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      "Characteristic facets (name + values with counts) for the current query and filters",
+  })
+  async searchFacets(
+    @Param("tenantId") tenantId: string,
+    @Query("q") q?: string,
+    @Query("lang") lang: string = "es",
+    @Query("supplierId") supplierId?: string,
+    @Query("ref") ref?: string,
+    @Query("ean") ean?: string,
+    @Query("l1Id") l1Id?: string,
+    @Query("l2Id") l2Id?: string,
+    @Query("l3Id") l3Id?: string,
+    @Query("id") id?: string,
+    @Query("visibility") visibility: number = 0,
+    @Query("type") type?: string,
+    @Query("rate") rate?: string,
+    @Query("characteristics") characteristics?: string,
+    @Query("includeSingleValue") includeSingleValue?: string | boolean,
+  ): Promise<{ data: any[] }> {
+    visibility = Number(visibility) || 0;
+
+    const data = await this.searchService.searchFacets(
+      lang,
+      {
+        tenantId,
+        supplierId,
+        deleted: false,
+        ref,
+        ean,
+        l1Id,
+        l2Id,
+        l3Id,
+        id,
+        visibility,
+        type,
+        rate,
+        characteristics,
+      },
+      q,
+      includeSingleValue === true || includeSingleValue === "true",
     );
 
     return { data };

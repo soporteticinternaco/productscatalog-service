@@ -12,6 +12,7 @@ export type ProductSearchFilters = {
   type?: string;
   grouping?: boolean;
   rate?: string;
+  characteristics?: string;
 };
 
 export type SupplierCat = {

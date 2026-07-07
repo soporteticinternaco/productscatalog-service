@@ -21,6 +21,11 @@ export class SearchService {
     this.client = this.elasticService.client;
   }
 
+  /** Products index name for a tenant. Single source of truth for the index. */
+  private _productsIndex(tenantId?: string): string {
+    return `productscatalog-${String(tenantId).toLowerCase()}-products-v2`;
+  }
+
   /**
    * Search full document in selected language.
    * - Uses multi_match on language-specific fields when q provided.
@@ -35,7 +40,7 @@ export class SearchService {
     sortBy?: string,
   ): Promise<ProductSearchResponse> {
     const tenantId = filters.tenantId?.toLowerCase();
-    const index = `productscatalog-${tenantId}-products-current`;
+    const index = this._productsIndex(tenantId);
     lang = lang.toLowerCase();
 
     const isFuzzy = !!q && q.length >= 3;
@@ -63,6 +68,7 @@ export class SearchService {
       "rates",
       "main_picture_url",
       "main_picture_thumb_url",
+      "characteristics",
     ];
 
     if (filters?.type === "edp") {
@@ -171,11 +177,19 @@ export class SearchService {
                 innerHit._source,
                 lang,
               ) as any;
+              innerFlattened.characteristics = this._localizeCharacteristics(
+                innerHit._source.characteristics,
+                lang,
+              );
               return applyRatePrice(innerFlattened, innerHit._source);
             });
         }
 
         applyRatePrice(flattened, src);
+        flattened.characteristics = this._localizeCharacteristics(
+          src.characteristics,
+          lang,
+        );
 
         return flattened;
       }),
@@ -211,7 +225,7 @@ export class SearchService {
     filters: ProductSearchFilters,
   ) {
     const isFuzzy = !!q && q.length >= 3;
-    const filtersClause = this._buildFilters(filters);
+    const filtersClause = this._buildFilters(filters, lang);
 
     if (q && q.length > 0) {
       const mainQueries: any[] = [
@@ -561,7 +575,7 @@ export class SearchService {
     q?: string,
   ): Promise<any[]> {
     const tenantId = filters.tenantId?.toLowerCase();
-    const index = `productscatalog-${tenantId}-products-current`;
+    const index = this._productsIndex(tenantId);
     lang = lang.toLowerCase();
 
     const query = this._buildSearchQuery(lang, q, filters);
@@ -661,7 +675,86 @@ export class SearchService {
     return categories;
   }
 
-  private _buildFilters(filters?: ProductSearchFilters) {
+  /**
+   * Characteristic facet filters for the current query + filters.
+   * Returns each characteristic name with its distinct values and counts, in the
+   * requested language. Names and values are sorted alphabetically (locale-aware)
+   * here in the service, not in Elasticsearch — see the facets plan.
+   */
+  async searchFacets(
+    lang: string,
+    filters: ProductSearchFilters = { deleted: false },
+    q?: string,
+    includeSingleValue = false,
+  ): Promise<Array<{ name: string; values: Array<{ value: string; count: number }> }>> {
+    const tenantId = filters.tenantId?.toLowerCase();
+    const index = this._productsIndex(tenantId);
+    lang = lang.toLowerCase();
+
+    const query = this._buildSearchQuery(lang, q, filters);
+
+    // Request enough buckets to capture every distinct name and value; ordering
+    // returned by ES is irrelevant since we sort below.
+    const NAMES_SIZE = 200;
+    const VALUES_SIZE = 200;
+
+    const body = {
+      query,
+      size: 0,
+      aggs: {
+        characteristics: {
+          nested: { path: "characteristics" },
+          aggs: {
+            by_lang: {
+              filter: { term: { "characteristics.lang": lang } },
+              aggs: {
+                names: {
+                  terms: { field: "characteristics.name", size: NAMES_SIZE },
+                  aggs: {
+                    values: {
+                      terms: {
+                        field: "characteristics.value",
+                        size: VALUES_SIZE,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+
+    const result = await this.client.search({ index, body });
+
+    const aggregations = result.aggregations as any;
+    const nameBuckets =
+      aggregations?.characteristics?.by_lang?.names?.buckets ?? [];
+
+    let facets = nameBuckets.map((nb: any) => ({
+      name: nb.key,
+      values: (nb.values?.buckets ?? [])
+        .map((vb: any) => ({ value: vb.key, count: vb.doc_count }))
+        .sort((a: any, b: any) =>
+          a.value.localeCompare(b.value, lang, { sensitivity: "base" }),
+        ),
+    }));
+
+    // By default, drop facets that offer only a single possible value since
+    // they provide no filtering choice. Callers can opt in via includeSingleValue.
+    if (!includeSingleValue) {
+      facets = facets.filter((f: any) => f.values.length > 1);
+    }
+
+    facets.sort((a: any, b: any) =>
+      a.name.localeCompare(b.name, lang, { sensitivity: "base" }),
+    );
+
+    return facets;
+  }
+
+  private _buildFilters(filters?: ProductSearchFilters, lang?: string) {
     if (!filters) return [];
 
     const filterClauses: any[] = [{ term: { deleted: false } }];
@@ -714,6 +807,42 @@ export class SearchService {
           },
         },
       });
+    }
+
+    // Selected characteristic facets, encoded as a flat "@@"-separated list
+    // alternating name, value, name, value, ... e.g.
+    //   Marca@@Bosch@@Capacidad de corte@@3 mm
+    // "@@" is used as the only delimiter because characteristic values can
+    // contain ":" and "," . Repeat a name to select several of its values.
+    // Values of the same name are OR-ed (terms); different names are AND-ed
+    // (separate nested clauses). Each clause is scoped to the requested language
+    // via characteristics.lang.
+    if (filters.characteristics) {
+      const tokens = filters.characteristics.split("@@");
+      const valuesByName = new Map<string, string[]>();
+      for (let i = 0; i + 1 < tokens.length; i += 2) {
+        const name = tokens[i].trim();
+        const value = tokens[i + 1].trim();
+        if (!name || !value) continue;
+        if (!valuesByName.has(name)) valuesByName.set(name, []);
+        valuesByName.get(name)!.push(value);
+      }
+
+      for (const [name, values] of valuesByName) {
+        const must: any[] = [
+          { term: { "characteristics.name": name } },
+          { terms: { "characteristics.value": values } },
+        ];
+        if (lang) {
+          must.unshift({ term: { "characteristics.lang": lang } });
+        }
+        filterClauses.push({
+          nested: {
+            path: "characteristics",
+            query: { bool: { must } },
+          },
+        });
+      }
     }
 
     return filterClauses;
@@ -820,6 +949,25 @@ export class SearchService {
     return flatten(source);
   }
 
+  /**
+   * Reduce the lang-tagged characteristics array to the requested language as a
+   * list of { name, value }, sorted alphabetically (locale-aware). Entries are
+   * lang-tagged (not {es,pt} sub-objects), so _flattenLangFields cannot pick the
+   * language automatically.
+   */
+  private _localizeCharacteristics(
+    characteristics: any,
+    lang: string,
+  ): Array<{ name: string; value: string }> {
+    if (!Array.isArray(characteristics)) return [];
+    return characteristics
+      .filter((c) => c && c.lang === lang)
+      .map((c) => ({ name: c.name, value: c.value }))
+      .sort((a, b) =>
+        a.name.localeCompare(b.name, lang, { sensitivity: "base" }),
+      );
+  }
+
   async getCategoriesTree(
     tenantId: string,
     visibility: number,
@@ -827,7 +975,7 @@ export class SearchService {
     supplierIds?: string[],
     deleted?: boolean,
   ): Promise<SupplierCategoriesTree[]> {
-    const index = `productscatalog-${tenantId.toLocaleLowerCase()}-products-current`;
+    const index = this._productsIndex(tenantId);
 
     const filters: Array<Record<string, any>> = [
       { term: { "tenant_id.keyword": tenantId.toLowerCase() } },
