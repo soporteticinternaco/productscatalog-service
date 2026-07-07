@@ -442,14 +442,6 @@ export class ProductsController {
       'Already-selected characteristic facets as a flat "@@"-separated list alternating name, value, name, value, ...',
     example: "Marca@@G. ACACIO BCN",
   })
-  @ApiQuery({
-    name: "includeSingleValue",
-    type: Boolean,
-    required: false,
-    description:
-      "Whether to include facet filters that have only one possible value. Defaults to false.",
-    example: false,
-  })
   @ApiResponse({
     status: 200,
     description:
@@ -470,7 +462,6 @@ export class ProductsController {
     @Query("type") type?: string,
     @Query("rate") rate?: string,
     @Query("characteristics") characteristics?: string,
-    @Query("includeSingleValue") includeSingleValue?: string | boolean,
   ): Promise<{ data: any[] }> {
     visibility = Number(visibility) || 0;
 
@@ -492,7 +483,6 @@ export class ProductsController {
         characteristics,
       },
       q,
-      includeSingleValue === true || includeSingleValue === "true",
     );
 
     return { data };

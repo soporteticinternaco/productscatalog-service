@@ -685,7 +685,6 @@ export class SearchService {
     lang: string,
     filters: ProductSearchFilters = { deleted: false },
     q?: string,
-    includeSingleValue = false,
   ): Promise<Array<{ name: string; values: Array<{ value: string; count: number }> }>> {
     const tenantId = filters.tenantId?.toLowerCase();
     const index = this._productsIndex(tenantId);
@@ -732,7 +731,7 @@ export class SearchService {
     const nameBuckets =
       aggregations?.characteristics?.by_lang?.names?.buckets ?? [];
 
-    let facets = nameBuckets.map((nb: any) => ({
+    const facets = nameBuckets.map((nb: any) => ({
       name: nb.key,
       values: (nb.values?.buckets ?? [])
         .map((vb: any) => ({ value: vb.key, count: vb.doc_count }))
@@ -740,12 +739,6 @@ export class SearchService {
           a.value.localeCompare(b.value, lang, { sensitivity: "base" }),
         ),
     }));
-
-    // By default, drop facets that offer only a single possible value since
-    // they provide no filtering choice. Callers can opt in via includeSingleValue.
-    if (!includeSingleValue) {
-      facets = facets.filter((f: any) => f.values.length > 1);
-    }
 
     facets.sort((a: any, b: any) =>
       a.name.localeCompare(b.name, lang, { sensitivity: "base" }),
@@ -818,7 +811,16 @@ export class SearchService {
     // (separate nested clauses). Each clause is scoped to the requested language
     // via characteristics.lang.
     if (filters.characteristics) {
-      const tokens = filters.characteristics.split("@@");
+      // The value may arrive URL-encoded (e.g. "Marca%40%40Bosch"); decode it
+      // before splitting. Fall back to the raw string if it isn't valid
+      // percent-encoding so a stray "%" can't throw.
+      let raw = filters.characteristics;
+      try {
+        raw = decodeURIComponent(raw);
+      } catch {
+        // keep raw as-is
+      }
+      const tokens = raw.split("@@");
       const valuesByName = new Map<string, string[]>();
       for (let i = 0; i + 1 < tokens.length; i += 2) {
         const name = tokens[i].trim();
