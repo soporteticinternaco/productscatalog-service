@@ -216,6 +216,9 @@ components:
           type: number
         vat_amount:
           type: number
+        isReplacementOf:
+          type: boolean
+          description: True when the search term exactly matched one of this product's deprecated `replaces` references.
     ProductSearchResponse:
       type: object
       properties:
