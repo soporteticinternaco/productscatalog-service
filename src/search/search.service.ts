@@ -61,6 +61,7 @@ export class SearchService {
       "net_price_with_margin",
       "vat_amount",
       "rates",
+      "replaces",
       "main_picture_url",
       "main_picture_thumb_url",
     ];
@@ -163,6 +164,17 @@ export class SearchService {
           return item;
         };
 
+        // Flags the hit when `q` exactly matches one of its deprecated
+        // `replaces` references, mirroring the exact `term` boost added in
+        // `_buildSearchQuery`. Computed from `_source` rather than ES
+        // `matched_queries`, since `replaces` is already fetched for this.
+        const applyReplacesMatch = (item: any, rawSrc: any) => {
+          item.isReplacementOf =
+            !!q && Array.isArray(rawSrc.replaces) && rawSrc.replaces.includes(q);
+          delete item.replaces;
+          return item;
+        };
+
         if (hit.inner_hits && hit.inner_hits.grouped_items) {
           flattened.grouped_items = hit.inner_hits.grouped_items.hits.hits
             .filter((innerHit: any) => innerHit._id !== hit._id)
@@ -171,10 +183,12 @@ export class SearchService {
                 innerHit._source,
                 lang,
               ) as any;
+              applyReplacesMatch(innerFlattened, innerHit._source);
               return applyRatePrice(innerFlattened, innerHit._source);
             });
         }
 
+        applyReplacesMatch(flattened, src);
         applyRatePrice(flattened, src);
 
         return flattened;
@@ -218,6 +232,9 @@ export class SearchService {
         // 🔹 Exact boosts (cheap & important)
         { term: { "ref.keyword": { value: q, boost: 20 } } },
         { term: { "ean.keyword": { value: q, boost: 20 } } },
+        // Exact match only — `replaces` is a keyword field, so this never
+        // partially/fuzzily matches a deprecated reference.
+        { term: { replaces: { value: q, boost: 20 } } },
 
         // 🔹 Text relevance grouped per field using dis_max
         {

@@ -28,5 +28,6 @@ export type ProductSearchResult = {
   sale_price?: number;
   net_price_with_margin?: number;
   vat_amount?: number;
+  isReplacementOf?: boolean;
   grouped_items?: ProductSearchResult[];
 };
