@@ -574,6 +574,26 @@ export class SearchService {
                   },
                 ]
               : []),
+            // Recall is intentionally accent/b-v insensitive (iberian_normalization
+            // folds "látex"~"latex", "vaca"~"baca", etc. so typos and inconsistent
+            // source data don't cost us matches). But when a document contains the
+            // *exact* characters the user typed, it's a slightly better match than
+            // one that only matches through that folding — e.g. searching "látex"
+            // should nudge products literally spelled "látex" a little ahead of
+            // ones that only match via the accent fold. description.${lang}.keyword
+            // is the raw, unanalyzed field, so this check bypasses all folding.
+            // Kept modest (below every other bonus) — a tie-breaker, not a gate.
+            {
+              filter: {
+                wildcard: {
+                  [`description.${lang}.keyword`]: {
+                    value: `*${q.replace(/[\\*?]/g, "\\$&")}*`,
+                    case_insensitive: true,
+                  },
+                },
+              },
+              weight: 150,
+            },
           ],
 
           score_mode: "sum" as const,
