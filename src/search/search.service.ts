@@ -440,6 +440,20 @@ export class SearchService {
           //   200 — (multi-word) description matches head term — partial-match tiebreaker
           functions: [
             {
+              // For multi-word queries we additionally require a full
+              // cross-fields AND match — otherwise a doc whose description
+              // merely starts with the first query word (e.g. "mesa" for
+              // "mesa jardin") would get this bonus even if it doesn't
+              // mention the rest of the query at all.
+              //
+              // For single-word queries that AND requirement backfires: a
+              // truncated/partial word (e.g. "pulveriz" for "pulverizador")
+              // is never a complete indexed token anywhere, so the AND check
+              // can never succeed and the whole bonus silently never fires —
+              // even though the prefix match alone is already a strong,
+              // unambiguous signal (only the intended product actually
+              // starts with what the user typed). So for single-word
+              // queries we rely on the prefix check alone.
               filter: {
                 bool: {
                   must: [
@@ -451,19 +465,23 @@ export class SearchService {
                         },
                       },
                     },
-                    {
-                      multi_match: {
-                        query: q,
-                        fields: [
-                          `description.${lang}`,
-                          `description.${lang}.normalized`,
-                          `short_description.${lang}`,
-                          `tags.${lang}`,
-                        ],
-                        type: "cross_fields",
-                        operator: "and",
-                      },
-                    },
+                    ...(q.includes(" ")
+                      ? [
+                          {
+                            multi_match: {
+                              query: q,
+                              fields: [
+                                `description.${lang}`,
+                                `description.${lang}.normalized`,
+                                `short_description.${lang}`,
+                                `tags.${lang}`,
+                              ],
+                              type: "cross_fields",
+                              operator: "and",
+                            },
+                          } as any,
+                        ]
+                      : []),
                   ],
                 },
               },
