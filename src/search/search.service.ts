@@ -191,16 +191,42 @@ export class SearchService {
     filters: ProductSearchFilters,
     sourceFields: string[],
   ): Promise<any | null> {
+    // sa92-only: also matches when `q` equals the *stored* ref with its
+    // first 2 characters stripped (e.g. q="K00401124" finding a product
+    // stored as "47K00401124").
+    const refMatchClause =
+      filters.tenantId?.toLowerCase() === "sa92"
+        ? {
+            bool: {
+              should: [
+                {
+                  term: {
+                    "ref.keyword": { value: q, case_insensitive: true },
+                  },
+                },
+                {
+                  script: {
+                    script: {
+                      lang: "painless",
+                      source:
+                        "doc['ref.keyword'].size() > 0 && doc['ref.keyword'].value.length() > 2 && doc['ref.keyword'].value.substring(2).equalsIgnoreCase(params.value)",
+                      params: { value: q },
+                    },
+                  },
+                },
+              ],
+              minimum_should_match: 1,
+            },
+          }
+        : { term: { "ref.keyword": { value: q, case_insensitive: true } } };
+
     const result = await this.client.search({
       index,
       size: 1,
       _source: sourceFields,
       query: {
         bool: {
-          filter: [
-            ...this._buildFilters(filters),
-            { term: { "ref.keyword": { value: q, case_insensitive: true } } },
-          ],
+          filter: [...this._buildFilters(filters), refMatchClause],
         },
       },
     });
@@ -811,13 +837,13 @@ export class SearchService {
       });
     }
     if (filters.l1Id) {
-      filterClauses.push({ term: { level1: filters.l1Id } });
+      filterClauses.push({ term: { "level1.keyword": filters.l1Id } });
     }
     if (filters.l2Id) {
-      filterClauses.push({ term: { level2: filters.l2Id } });
+      filterClauses.push({ term: { "level2.keyword": filters.l2Id } });
     }
     if (filters.l3Id) {
-      filterClauses.push({ term: { level3: filters.l3Id } });
+      filterClauses.push({ term: { "level3.keyword": filters.l3Id } });
     }
     if (filters.type) {
       filterClauses.push({ term: { type: filters.type } });
