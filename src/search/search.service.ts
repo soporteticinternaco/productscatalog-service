@@ -76,6 +76,21 @@ export class SearchService {
       );
     }
 
+    if (q && page === 0) {
+      const exactRefHit = await this._findExactRefMatch(
+        index,
+        q,
+        filters,
+        response_fields,
+      );
+      if (exactRefHit) {
+        return {
+          navigation: { total: 1, page: 0, limit, count: 1 },
+          data: [this._flattenHit(exactRefHit, lang, q, filters)],
+        };
+      }
+    }
+
     const query = this._buildSearchQuery(lang, q, filters);
 
     let body: Record<string, any> = {
@@ -109,6 +124,15 @@ export class SearchService {
       };
     }
 
+    console.log(
+      "================================= page: " +
+        page +
+        ", limit: " +
+        limit +
+        ", isGrouping: " +
+        isGrouping,
+    );
+
     const fetchSize = limit;
     const from = page * limit;
 
@@ -139,61 +163,99 @@ export class SearchService {
 
     console.log("navigation", JSON.stringify(navigation, null, 2));
 
+    const data = (
+      isGrouping ? result.hits.hits.slice(0, limit) : result.hits.hits
+    ).map((hit: any) => this._flattenHit(hit, lang, q, filters));
+
     return {
       navigation,
-      data: (isGrouping
-        ? result.hits.hits.slice(0, limit)
-        : result.hits.hits
-      ).map((hit: any) => {
-        const src = hit._source || {};
-        const flattened = this._flattenLangFields(
-          src,
-          lang,
-        ) as ProductSearchResult;
-
-        const applyRatePrice = (item: any, rawSrc: any) => {
-          if (filters.rate && (!filters.type || filters.type === "own")) {
-            const rateData = rawSrc.rates?.find(
-              (r: any) => r.id === filters.rate,
-            );
-            if (rateData) {
-              item.net_price = rateData.price;
-            }
-          }
-          delete item.rates;
-          return item;
-        };
-
-        // Flags the hit when `q` exactly matches one of its deprecated
-        // `replaces` references, mirroring the exact `term` boost added in
-        // `_buildSearchQuery`. Computed from `_source` rather than ES
-        // `matched_queries`, since `replaces` is already fetched for this.
-        const applyReplacesMatch = (item: any, rawSrc: any) => {
-          item.isReplacementOf =
-            !!q && Array.isArray(rawSrc.replaces) && rawSrc.replaces.includes(q);
-          delete item.replaces;
-          return item;
-        };
-
-        if (hit.inner_hits && hit.inner_hits.grouped_items) {
-          flattened.grouped_items = hit.inner_hits.grouped_items.hits.hits
-            .filter((innerHit: any) => innerHit._id !== hit._id)
-            .map((innerHit: any) => {
-              const innerFlattened = this._flattenLangFields(
-                innerHit._source,
-                lang,
-              ) as any;
-              applyReplacesMatch(innerFlattened, innerHit._source);
-              return applyRatePrice(innerFlattened, innerHit._source);
-            });
-        }
-
-        applyReplacesMatch(flattened, src);
-        applyRatePrice(flattened, src);
-
-        return flattened;
-      }),
+      data,
     };
+  }
+
+  // Exact ref/SKU lookup: if `q` exactly matches a product's `ref` (e.g. a
+  // user searching their own reference code), that's an unambiguous match —
+  // return just that one product, skipping the fuzzy/relevance query
+  // entirely. This has to run as its own dedicated query rather than "check
+  // whether the top-ranked fuzzy result happens to have this ref": relevance
+  // scoring is noisy (fuzzy matches, phonetic, synonym expansion, multiple
+  // additive bonuses), so the correct doc isn't guaranteed to rank #1 or even
+  // appear in the page — it can get buried under unrelated results that
+  // happen to fuzzy-match parts of the query. `case_insensitive: true`
+  // because `ref.keyword` is an unanalyzed field — a `term` query against it
+  // is exact-case by default, and users don't reliably type SKUs in the
+  // stored case.
+  private async _findExactRefMatch(
+    index: string,
+    q: string,
+    filters: ProductSearchFilters,
+    sourceFields: string[],
+  ): Promise<any | null> {
+    const result = await this.client.search({
+      index,
+      size: 1,
+      _source: sourceFields,
+      query: {
+        bool: {
+          filter: [
+            ...this._buildFilters(filters),
+            { term: { "ref.keyword": { value: q, case_insensitive: true } } },
+          ],
+        },
+      },
+    });
+
+    return (result.hits.hits[0] as any) ?? null;
+  }
+
+  private _flattenHit(
+    hit: any,
+    lang: string,
+    q: string | undefined,
+    filters: ProductSearchFilters,
+  ): ProductSearchResult {
+    const src = hit._source || {};
+    const flattened = this._flattenLangFields(src, lang) as ProductSearchResult;
+
+    const applyRatePrice = (item: any, rawSrc: any) => {
+      if (filters.rate && (!filters.type || filters.type === "own")) {
+        const rateData = rawSrc.rates?.find((r: any) => r.id === filters.rate);
+        if (rateData) {
+          item.net_price = rateData.price;
+        }
+      }
+      delete item.rates;
+      return item;
+    };
+
+    // Flags the hit when `q` exactly matches one of its deprecated
+    // `replaces` references, mirroring the exact `term` boost added in
+    // `_buildSearchQuery`. Computed from `_source` rather than ES
+    // `matched_queries`, since `replaces` is already fetched for this.
+    const applyReplacesMatch = (item: any, rawSrc: any) => {
+      item.isReplacementOf =
+        !!q && Array.isArray(rawSrc.replaces) && rawSrc.replaces.includes(q);
+      delete item.replaces;
+      return item;
+    };
+
+    if (hit.inner_hits && hit.inner_hits.grouped_items) {
+      (flattened as any).grouped_items = hit.inner_hits.grouped_items.hits.hits
+        .filter((innerHit: any) => innerHit._id !== hit._id)
+        .map((innerHit: any) => {
+          const innerFlattened = this._flattenLangFields(
+            innerHit._source,
+            lang,
+          ) as any;
+          applyReplacesMatch(innerFlattened, innerHit._source);
+          return applyRatePrice(innerFlattened, innerHit._source);
+        });
+    }
+
+    applyReplacesMatch(flattened, src);
+    applyRatePrice(flattened, src);
+
+    return flattened;
   }
 
   private _buildNavigation(
