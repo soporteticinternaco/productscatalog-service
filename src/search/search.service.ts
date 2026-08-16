@@ -440,6 +440,20 @@ export class SearchService {
           //   200 — (multi-word) description matches head term — partial-match tiebreaker
           functions: [
             {
+              // For multi-word queries we additionally require a full
+              // cross-fields AND match — otherwise a doc whose description
+              // merely starts with the first query word (e.g. "mesa" for
+              // "mesa jardin") would get this bonus even if it doesn't
+              // mention the rest of the query at all.
+              //
+              // For single-word queries that AND requirement backfires: a
+              // truncated/partial word (e.g. "pulveriz" for "pulverizador")
+              // is never a complete indexed token anywhere, so the AND check
+              // can never succeed and the whole bonus silently never fires —
+              // even though the prefix match alone is already a strong,
+              // unambiguous signal (only the intended product actually
+              // starts with what the user typed). So for single-word
+              // queries we rely on the prefix check alone.
               filter: {
                 bool: {
                   must: [
@@ -451,19 +465,23 @@ export class SearchService {
                         },
                       },
                     },
-                    {
-                      multi_match: {
-                        query: q,
-                        fields: [
-                          `description.${lang}`,
-                          `description.${lang}.normalized`,
-                          `short_description.${lang}`,
-                          `tags.${lang}`,
-                        ],
-                        type: "cross_fields",
-                        operator: "and",
-                      },
-                    },
+                    ...(q.includes(" ")
+                      ? [
+                          {
+                            multi_match: {
+                              query: q,
+                              fields: [
+                                `description.${lang}`,
+                                `description.${lang}.normalized`,
+                                `short_description.${lang}`,
+                                `tags.${lang}`,
+                              ],
+                              type: "cross_fields",
+                              operator: "and",
+                            },
+                          } as any,
+                        ]
+                      : []),
                   ],
                 },
               },
@@ -556,6 +574,26 @@ export class SearchService {
                   },
                 ]
               : []),
+            // Recall is intentionally accent/b-v insensitive (iberian_normalization
+            // folds "látex"~"latex", "vaca"~"baca", etc. so typos and inconsistent
+            // source data don't cost us matches). But when a document contains the
+            // *exact* characters the user typed, it's a slightly better match than
+            // one that only matches through that folding — e.g. searching "látex"
+            // should nudge products literally spelled "látex" a little ahead of
+            // ones that only match via the accent fold. description.${lang}.keyword
+            // is the raw, unanalyzed field, so this check bypasses all folding.
+            // Kept modest (below every other bonus) — a tie-breaker, not a gate.
+            {
+              filter: {
+                wildcard: {
+                  [`description.${lang}.keyword`]: {
+                    value: `*${q.replace(/[\\*?]/g, "\\$&")}*`,
+                    case_insensitive: true,
+                  },
+                },
+              },
+              weight: 150,
+            },
           ],
 
           score_mode: "sum" as const,
