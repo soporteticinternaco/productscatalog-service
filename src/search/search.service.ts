@@ -622,8 +622,21 @@ export class SearchService {
               weight: 700,
             },
             {
+              // Without fuzziness, this bonus (the 2nd-largest, after the
+              // prefix bonus) requires an exact token match, so a single
+              // typo ("cortasesped" for "cortacesped") loses out on 650 of
+              // the ~2000+ points a correctly-spelled query earns, producing
+              // a very different top-ranked set for what should be a near-
+              // identical query. fuzziness 1 (not AUTO:3,5) deliberately —
+              // description.{lang} is already accent-folded at index time,
+              // so a single-letter typo is only 1 edit away; going to 2
+              // edits let coincidental collisions on unrelated words (e.g.
+              // "escada" → "escuadra", a completely different tool, 2 edits
+              // apart) collect this same bonus and outrank genuine matches.
               filter: {
-                match: { [`description.${lang}`]: { query: q } },
+                match: {
+                  [`description.${lang}`]: { query: q, fuzziness: 1 },
+                },
               },
               weight: 650,
             },
@@ -636,6 +649,33 @@ export class SearchService {
                 match: { [`tags.${lang}`]: { query: q, operator: "and" } },
               },
               weight: 600,
+            },
+            {
+              // Fuzzy counterpart of the 600 bonus above, at a much lower
+              // weight. The 600 bonus is deliberately exact (no fuzziness —
+              // a fuzzy OR-of-tags match risks matching unrelated products
+              // on a shared misspelled-adjacent token). But with exactness
+              // on both 700 (prefix) and 600 gone under a typo, every
+              // product that matches at all collapses to one identical
+              // score — ties then fall back to Elasticsearch's internal
+              // doc/segment order, which is arbitrary and unstable. This
+              // restores *some* differentiation for typo'd queries without
+              // reopening the false-positive risk: it's low enough that it
+              // only breaks ties among already-matching products, never
+              // outranks the exact-match tiers above it. fuzziness 1, same
+              // reasoning as the 650 bonus above — 2 edits is loose enough
+              // to match unrelated words and let them collect this bonus
+              // too, defeating the point of keeping 600 itself exact.
+              filter: {
+                match: {
+                  [`tags.${lang}`]: {
+                    query: q,
+                    operator: "and",
+                    fuzziness: 1,
+                  },
+                },
+              },
+              weight: 100,
             },
             {
               // For single-word queries only the fuzzy first-word match is
@@ -966,7 +1006,17 @@ export class SearchService {
     }
 
     if (field === "_score") {
-      return undefined; // let ES handle default scoring sort
+      // Explicit tiebreak on id.keyword: plain `_score desc` leaves ties
+      // (common for typo'd queries, where several products can land on the
+      // exact same function_score total) to Elasticsearch's internal
+      // doc/segment order — arbitrary, and liable to shuffle between
+      // requests as segments merge. id.keyword gives a stable, deterministic
+      // order among tied documents without affecting anything that's
+      // actually differentiated by score.
+      return [
+        { _score: { order: "desc" } },
+        { "id.keyword": { order: "asc" } },
+      ];
     }
 
     return [{ [field]: { order: direction } }, { _score: { order: "desc" } }];
