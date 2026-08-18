@@ -571,16 +571,33 @@ export class SearchService {
               // unambiguous signal (only the intended product actually
               // starts with what the user typed). So for single-word
               // queries we rely on the prefix check alone.
+              //
+              // Prefix check runs against `.iberian` (accent-folding),
+              // NOT the raw `.keyword` field — `.keyword` is unanalyzed and
+              // only `case_insensitive`, so "Cortacésped ..." would never
+              // prefix-match a "cortacesped" query (missing accent is a
+              // literal character mismatch). `span_first`+`span_multi`+
+              // `prefix` reproduces "field starts with this word" on the
+              // analyzed field: it requires a term within the first token
+              // position whose (accent-folded) text is a prefix of the
+              // query's first word.
               filter: {
                 bool: {
                   must: [
                     {
-                      prefix: {
-                        [`description.${lang}.keyword`]: {
-                          value: q.split(" ")[0],
-                          case_insensitive: true,
+                      span_first: {
+                        match: {
+                          span_multi: {
+                            match: {
+                              prefix: {
+                                [`description.${lang}.iberian`]:
+                                  q.split(" ")[0].toLowerCase(),
+                              },
+                            },
+                          },
                         },
-                      },
+                        end: 1,
+                      } as any,
                     },
                     ...(q.includes(" ")
                       ? [
