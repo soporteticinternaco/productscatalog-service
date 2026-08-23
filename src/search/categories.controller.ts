@@ -17,6 +17,13 @@ export class CategoriesController {
     enum: ["ca", "en", "es", "fr", "gl", "pt"],
   })
   @ApiQuery({
+    name: "type",
+    type: String,
+    required: false,
+    description: "Product type",
+    example: "own",
+  })
+  @ApiQuery({
     name: "supplierIds",
     type: String,
     required: false,
@@ -63,6 +70,7 @@ export class CategoriesController {
     @Req() req: Request,
     @Param("tenantId") tenantId: string,
     @Query("lang") lang?: string,
+    @Query("type") type?: string,
     @Query("supplierIds") supplierIds?: string,
     @Query("l1Id") level1Id?: string,
     @Query("l2Id") level2Id?: string,
@@ -74,6 +82,7 @@ export class CategoriesController {
       tenantId,
       visibility || 0,
       lang || "es",
+      type || "edp",
       supplierIds,
       deleted !== undefined ? String(deleted) === "true" : undefined,
       level1Id,
