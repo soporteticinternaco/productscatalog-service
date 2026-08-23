@@ -3,10 +3,18 @@ info:
   title: Products Catalog API
   version: 1.0.0
 paths:
-  /search:
+  /tenants/{tenantId}/search/products:
     get:
       summary: Search products
+      tags:
+        - Products
       parameters:
+        - in: path
+          name: tenantId
+          schema:
+            type: string
+          required: true
+          description: Tenant identifier
         - in: query
           name: q
           schema:
@@ -17,7 +25,7 @@ paths:
           name: lang
           schema:
             type: string
-            enum: [ca,en,es,fr,gl,pt]
+            enum: [ca, en, es, fr, gl, pt]
             default: es
           required: false
           description: Language code to search in (defaults to 'es')
@@ -25,97 +33,259 @@ paths:
           name: page
           schema:
             type: integer
-            minimum: 1
-            default: 1
+            minimum: 0
+            default: 0
           required: false
-          description: Page number for pagination
+          description: Page number for pagination (0-based)
         - in: query
-          name: limit
+          name: size
           schema:
             type: integer
             minimum: 1
-            maximum: 100
-            default: 10
+            default: 12
           required: false
-          description: Number of results per page
+          description: Results per page
         - in: query
-          name: supplier_id
+          name: supplierId
           schema:
             type: string
           required: false
-          description: supplier id
+          description: Supplier id
         - in: query
           name: ref
           schema:
             type: string
           required: false
-          description: product ref
+          description: Comma separated product refs
+          example: "462"
         - in: query
           name: ean
           schema:
             type: string
           required: false
-          description: product ean
+          description: Comma separated product eans
+          example: "3253561801174"
         - in: query
-          name: level1Id
+          name: l1Id
           schema:
             type: string
           required: false
-          description: level1 category filter
+          description: Level1 cat id
+          example: "06"
         - in: query
-          name: level2Id
+          name: l2Id
           schema:
             type: string
           required: false
-          description: level2 category filter
+          description: Level2 cat id
+          example: "0604"
         - in: query
-          name: level3Id
+          name: l3Id
           schema:
             type: string
           required: false
-          description: level3 category filter
+          description: Level3 cat id
+          example: "060406"
+        - in: query
+          name: id
+          schema:
+            type: string
+          required: false
+          description: Comma separated product ids
+          example: "060406,AS234"
         - in: query
           name: visibility
           schema:
+            type: integer
+            default: 0
+          required: false
+          description: Client visibility
+        - in: query
+          name: sortBy
+          schema:
             type: string
           required: false
-          description: supplier visibility
+          description: Sort by field; suffix with `+`/`-` for direction (e.g. `price+`)
+          example: "price+"
         - in: query
-          name: ids
+          name: type
           schema:
-            type: array
-            items:
-              type: string
+            type: string
           required: false
-          description: product ids
+          description: Product type
+          example: "own"
+        - in: query
+          name: grouping
+          schema:
+            type: boolean
+            default: false
+          required: false
+          description: Group products by grouping_code
+        - in: query
+          name: rate
+          schema:
+            type: string
+          required: false
+          description: Product rate id
+          example: "R1"
       responses:
-        '200':
-          description: List of matching products (full document in selected language)
+        "200":
+          description: Matching products (full document in selected language)
           content:
             application/json:
               schema:
-                type: array
-                items:
-                  $ref: '#/components/schemas/ProductSearchResponse'
-  /search/categories-tree:
-    post:
+                $ref: "#/components/schemas/ProductSearchResponse"
+  /tenants/{tenantId}/search/categories:
+    get:
+      summary: For a specific search, returns categories with each category total count. Used in category filters.
+      description: Returns the level1/level2/level3 category hierarchy for the given search, with a product count per level3 category.
+      tags:
+        - Products
+      parameters:
+        - in: path
+          name: tenantId
+          schema:
+            type: string
+          required: true
+          description: Tenant identifier
+        - in: query
+          name: q
+          schema:
+            type: string
+          required: false
+          description: Search query
+        - in: query
+          name: lang
+          schema:
+            type: string
+            enum: [ca, en, es, fr, gl, pt]
+            default: es
+          required: false
+          description: Language code to search in (defaults to 'es')
+        - in: query
+          name: supplierId
+          schema:
+            type: string
+          required: false
+          description: Supplier id
+        - in: query
+          name: ref
+          schema:
+            type: string
+          required: false
+          description: Comma separated product refs
+          example: "462"
+        - in: query
+          name: ean
+          schema:
+            type: string
+          required: false
+          description: Comma separated product eans
+          example: "3253561801174"
+        - in: query
+          name: l1Id
+          schema:
+            type: string
+          required: false
+          description: Level1 cat id
+          example: "06"
+        - in: query
+          name: l2Id
+          schema:
+            type: string
+          required: false
+          description: Level2 cat id
+          example: "0604"
+        - in: query
+          name: l3Id
+          schema:
+            type: string
+          required: false
+          description: Level3 cat id
+          example: "060406"
+        - in: query
+          name: id
+          schema:
+            type: string
+          required: false
+          description: Comma separated product ids
+          example: "060406,AS234"
+        - in: query
+          name: visibility
+          schema:
+            type: integer
+            default: 0
+          required: false
+          description: Client visibility
+        - in: query
+          name: type
+          schema:
+            type: string
+          required: false
+          description: Product type
+          example: "own"
+        - in: query
+          name: rate
+          schema:
+            type: string
+          required: false
+          description: Product rate id
+          example: "R1"
+      responses:
+        "200":
+          description: Array of categories (with product count) matching the search
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchCategoriesResponse"
+  /tenants/{tenantId}/categories-tree:
+    get:
       summary: Get categories tree for suppliers
       description: Returns a hierarchical tree of categories (level1 → level2 → level3) for the given supplier IDs, localized by the requested language.
       tags:
         - Categories
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/GetCategoriesTreeRequest'
+      parameters:
+        - in: path
+          name: tenantId
+          schema:
+            type: string
+          required: true
+          description: Tenant identifier
+        - in: query
+          name: lang
+          schema:
+            type: string
+            enum: [ca, en, es, fr, gl, pt]
+            default: es
+          required: false
+          description: Language code
+        - in: query
+          name: supplierIds
+          schema:
+            type: string
+          required: false
+          description: Comma separated supplier ids
+          example: "WBG,BEN"
+        - in: query
+          name: visibility
+          schema:
+            type: integer
+            default: 0
+          required: false
+          description: Client visibility
+        - in: query
+          name: deleted
+          schema:
+            type: boolean
+          required: false
+          description: Include deleted products. If not set, only non-deleted are returned.
       responses:
-        '200':
+        "200":
           description: Hierarchical categories tree
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/GetCategoriesTreeResponse'
+                $ref: "#/components/schemas/GetCategoriesTreeResponse"
 components:
   schemas:
     CategoryNode:
@@ -132,67 +302,67 @@ components:
         children:
           type: array
           items:
-            $ref: '#/components/schemas/CategoryNode'
+            $ref: "#/components/schemas/CategoryNode"
     GetCategoriesTreeResponse:
       type: object
       properties:
         data:
           type: array
           items:
-            $ref: '#/components/schemas/SupplierCategoriesTree'
-    GetCategoriesTreeRequest:
+            $ref: "#/components/schemas/SupplierCategoriesTree"
+    CategoryCount:
       type: object
-      required:
-        - tenantId
-        - lang
       properties:
-        tenantId:
+        level1:
           type: string
-          description: Tenant identifier
-          example: "ELSABIO"
-        supplierIds:
-          type: array
-          description: List of supplier IDs
-          items:
-            type: string
-          example: ["supplier123", "supplier456"]
-        visibility:
+        level1Name:
+          type: string
+        level2:
+          type: string
+        level2Name:
+          type: string
+        level3:
+          type: string
+        level3Name:
+          type: string
+        count:
           type: integer
-          example: 0
-        lang:
-          type: string
-          description: Language code
-          enum: [ca, en, es, fr, gl, pt]
-          default: es
+    SearchCategoriesResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/CategoryCount"
     ProductSearchResult:
       type: object
       properties:
         id:
           type: string
-        ref: 
+        ref:
           type: string
         ean:
           type: string
-        container_units:
+        containerUnits:
           type: string
-        container_type:
+        containerType:
           type: string
-        supplier_id:
+        supplierId:
           type: string
-        supplier_name:
+        supplierName:
           type: string
         step:
           type: integer
           example: 1
         description:
           type: string
-        short_description:
+        shortDescription:
           type: string
-        main_picture_url:
+        mainPictureUrl:
           type: string
-        main_picture_thumb_url:
+        mainPictureThumbUrl:
           type: string
-        level1: 
+        level1:
           type: string
         level2:
           type: string
@@ -208,17 +378,22 @@ components:
           type: number
         discount2:
           type: number
-        net_price:
+        netPrice:
           type: number
-        sale_price:
+        salePrice:
           type: number
-        net_price_with_margin:
+        netPriceWithMargin:
           type: number
-        vat_amount:
+        vatAmount:
           type: number
         isReplacementOf:
           type: boolean
           description: True when the search term exactly matched one of this product's deprecated `replaces` references.
+        groupedItems:
+          type: array
+          description: When grouping is enabled, other products collapsed under the same grouping_code.
+          items:
+            $ref: "#/components/schemas/ProductSearchResult"
     ProductSearchResponse:
       type: object
       properties:
@@ -228,6 +403,8 @@ components:
             total:
               type: integer
             page:
+              type: integer
+            count:
               type: integer
             limit:
               type: integer
@@ -248,7 +425,7 @@ components:
         data:
           type: array
           items:
-            $ref: '#/components/schemas/ProductSearchResult'
+            $ref: "#/components/schemas/ProductSearchResult"
     SupplierCategoriesTree:
       type: object
       properties:
@@ -259,4 +436,4 @@ components:
         categories:
           type: array
           items:
-            $ref: '#/components/schemas/CategoryNode'
+            $ref: "#/components/schemas/CategoryNode"

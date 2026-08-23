@@ -4,12 +4,12 @@ import { SearchService } from "./search.service";
 import { ProductSearchResponse } from "../dto";
 import { Request } from "express";
 
-@ApiTags("Search")
-@Controller("tenants/:tenantId/products")
+@ApiTags("Products")
+@Controller("tenants/:tenantId/search")
 export class ProductsController {
   constructor(private readonly searchService: SearchService) {}
 
-  @Get("search")
+  @Get("products")
   @ApiParam({ name: "tenantId", required: true, type: String })
   @ApiQuery({ name: "q", required: false })
   @ApiQuery({
@@ -222,7 +222,7 @@ export class ProductsController {
     return response;
   }
 
-  @Get("search/categories")
+  @Get("categories")
   @ApiParam({ name: "tenantId", required: true, type: String })
   @ApiQuery({ name: "q", required: false })
   @ApiQuery({

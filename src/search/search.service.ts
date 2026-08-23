@@ -234,6 +234,33 @@ export class SearchService {
     return (result.hits.hits[0] as any) ?? null;
   }
 
+  // Maps ES's stored (snake_case) document field names to the API's
+  // camelCase output contract. Only covers fields that actually reach
+  // _flattenHit's output — the ES index schema itself is unaffected
+  // (response_fields / query field references elsewhere still use the
+  // real, snake_case stored field names).
+  private static readonly FIELD_RENAME_MAP: Record<string, string> = {
+    supplier_id: "supplierId",
+    supplier_name: "supplierName",
+    container_units: "containerUnits",
+    container_type: "containerType",
+    main_picture_url: "mainPictureUrl",
+    main_picture_thumb_url: "mainPictureThumbUrl",
+    short_description: "shortDescription",
+    net_price: "netPrice",
+    sale_price: "salePrice",
+    net_price_with_margin: "netPriceWithMargin",
+    vat_amount: "vatAmount",
+  };
+
+  private _toCamelCaseFields(item: Record<string, any>): Record<string, any> {
+    const result: Record<string, any> = {};
+    for (const key of Object.keys(item)) {
+      result[SearchService.FIELD_RENAME_MAP[key] ?? key] = item[key];
+    }
+    return result;
+  }
+
   private _flattenHit(
     hit: any,
     lang: string,
@@ -266,7 +293,7 @@ export class SearchService {
     };
 
     if (hit.inner_hits && hit.inner_hits.grouped_items) {
-      (flattened as any).grouped_items = hit.inner_hits.grouped_items.hits.hits
+      (flattened as any).groupedItems = hit.inner_hits.grouped_items.hits.hits
         .filter((innerHit: any) => innerHit._id !== hit._id)
         .map((innerHit: any) => {
           const innerFlattened = this._flattenLangFields(
@@ -274,14 +301,15 @@ export class SearchService {
             lang,
           ) as any;
           applyReplacesMatch(innerFlattened, innerHit._source);
-          return applyRatePrice(innerFlattened, innerHit._source);
+          applyRatePrice(innerFlattened, innerHit._source);
+          return this._toCamelCaseFields(innerFlattened);
         });
     }
 
     applyReplacesMatch(flattened, src);
     applyRatePrice(flattened, src);
 
-    return flattened;
+    return this._toCamelCaseFields(flattened) as ProductSearchResult;
   }
 
   private _buildNavigation(
@@ -967,8 +995,11 @@ export class SearchService {
     tenantId: string,
     visibility: number,
     lang: string,
-    supplierIds?: string[],
+    supplierIds?: string,
     deleted?: boolean,
+    l1Id?: string,
+    l2Id?: string,
+    l3Id?: string,
   ): Promise<SupplierCategoriesTree[]> {
     const index = `productscatalog-${tenantId.toLocaleLowerCase()}-products-current`;
 
@@ -977,7 +1008,14 @@ export class SearchService {
     ];
 
     if (supplierIds) {
-      filters.push({ terms: { supplier_id: supplierIds } });
+      // Express still parses a repeated query param (?supplierIds=A&supplierIds=B)
+      // into a real array despite the `string` contract, so guard against
+      // that rather than crash on `.split` — a caller-controlled input
+      // shape shouldn't 500 the request.
+      const supplierIdList = Array.isArray(supplierIds)
+        ? supplierIds
+        : supplierIds.split(",");
+      filters.push({ terms: { "supplier_id.keyword": supplierIdList } });
     }
 
     if (visibility) {
@@ -988,6 +1026,16 @@ export class SearchService {
       filters.push({ term: { deleted } });
     } else {
       filters.push({ term: { deleted: false } });
+    }
+
+    if (l1Id) {
+      filters.push({ term: { "level1.keyword": l1Id } });
+    }
+    if (l2Id) {
+      filters.push({ term: { "level2.keyword": l2Id } });
+    }
+    if (l3Id) {
+      filters.push({ term: { "level3.keyword": l3Id } });
     }
 
     const { aggregations } = await this.client.search({

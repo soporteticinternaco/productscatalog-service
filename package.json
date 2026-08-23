@@ -1,6 +1,6 @@
 {
   "name": "nestjs-elastic-language-api",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "scripts": {
     "start": "node dist/main.js",
     "start:dev": "ts-node-dev --respawn --transpile-only src/main.ts",

@@ -4,12 +4,12 @@ import { SearchService } from "./search.service";
 import { GetCategoriesTreeResponse } from "../dto";
 import { Request } from "express";
 
-@ApiTags("Search")
-@Controller("tenants/:tenantId/categories")
+@ApiTags("Categories")
+@Controller("tenants/:tenantId")
 export class CategoriesController {
   constructor(private readonly searchService: SearchService) { }
 
-  @Get("tree")
+  @Get("categories-tree")
   @ApiParam({ name: "tenantId", required: true, type: String })
   @ApiQuery({
     name: "lang",
@@ -20,8 +20,8 @@ export class CategoriesController {
     name: "supplierIds",
     type: String,
     required: false,
-    description: "Supplier Ids",
-    example: "",
+    description: "Comma separated supplier ids",
+    example: "WBG,BEN",
   })
   @ApiQuery({
     name: "l1Id",
@@ -63,8 +63,8 @@ export class CategoriesController {
     @Req() req: Request,
     @Param("tenantId") tenantId: string,
     @Query("lang") lang?: string,
-    @Query("supplierIds") supplierIds?: string[],
-    @Query("lId") level1Id?: string,
+    @Query("supplierIds") supplierIds?: string,
+    @Query("l1Id") level1Id?: string,
     @Query("l2Id") level2Id?: string,
     @Query("l3Id") level3Id?: string,
     @Query("visibility") visibility: number = 0,
@@ -76,6 +76,9 @@ export class CategoriesController {
       lang || "es",
       supplierIds,
       deleted !== undefined ? String(deleted) === "true" : undefined,
+      level1Id,
+      level2Id,
+      level3Id,
     );
     return { data: trees };
   }
