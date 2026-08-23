@@ -4,30 +4,37 @@
 /* eslint-disable */
 
 export type ProductSearchResult = {
-  id?: string;
-  ref?: string;
-  ean?: string;
-  supplier_id?: string;
-  supplier_name?: string;
-  description?: string;
-  container_units?: string;
-  container_type?: string;
-  step?: number;
-  main_picture_url?: string;
-  main_picture_thumb_url?: string;
-  level1?: string;
-  level2?: string;
-  level3?: string;
-  short_description?: string;
-  level1Name?: string;
-  level2Name?: string;
-  level3Name?: string;
-  discount1?: number;
-  discount2?: number;
-  net_price?: number;
-  sale_price?: number;
-  net_price_with_margin?: number;
-  vat_amount?: number;
-  isReplacementOf?: boolean;
-  grouped_items?: ProductSearchResult[];
+    id?: string;
+    ref?: string;
+    ean?: string;
+    containerUnits?: string;
+    containerType?: string;
+    supplierId?: string;
+    supplierName?: string;
+    step?: number;
+    description?: string;
+    shortDescription?: string;
+    mainPictureUrl?: string;
+    mainPictureThumbUrl?: string;
+    level1?: string;
+    level2?: string;
+    level3?: string;
+    level1Name?: string;
+    level2Name?: string;
+    level3Name?: string;
+    discount1?: number;
+    discount2?: number;
+    netPrice?: number;
+    salePrice?: number;
+    netPriceWithMargin?: number;
+    vatAmount?: number;
+    /**
+     * True when the search term exactly matched one of this product's deprecated `replaces` references.
+     */
+    isReplacementOf?: boolean;
+    /**
+     * When grouping is enabled, other products collapsed under the same grouping_code.
+     */
+    groupedItems?: Array<ProductSearchResult>;
 };
+
