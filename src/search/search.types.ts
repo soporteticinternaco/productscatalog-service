@@ -72,3 +72,13 @@ export type CategoriesTreeAggregation = {
     buckets: SupplierCat[];
   };
 };
+
+export type OwnCategoryDoc = {
+  tenant_id: string;
+  supplier_id: string;
+  level1: string;
+  level2: string | null;
+  level3: string | null;
+  description: Record<string, string>;
+  disabled: boolean;
+};

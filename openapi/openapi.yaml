@@ -260,6 +260,14 @@ paths:
           required: false
           description: Language code
         - in: query
+          name: type
+          schema:
+            type: string
+            default: edp
+          required: false
+          description: Product type
+          example: "own"
+        - in: query
           name: supplierIds
           schema:
             type: string

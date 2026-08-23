@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { Client } from "@elastic/elasticsearch";
 import {
   CategoriesTreeAggregation,
+  OwnCategoryDoc,
   ProductSearchFilters,
   SupplierCat,
 } from "./search.types";
@@ -995,12 +996,17 @@ export class SearchService {
     tenantId: string,
     visibility: number,
     lang: string,
+    type: string = "edp",
     supplierIds?: string,
     deleted?: boolean,
     l1Id?: string,
     l2Id?: string,
     l3Id?: string,
   ): Promise<SupplierCategoriesTree[]> {
+    if (type === "own") {
+      return this.getOwnCategoriesTree(tenantId, lang, deleted, l1Id, l2Id, l3Id);
+    }
+
     const index = `productscatalog-${tenantId.toLocaleLowerCase()}-products-current`;
 
     const filters: Array<Record<string, any>> = [
@@ -1142,5 +1148,126 @@ export class SearchService {
             .sort((a, b) => a.description.localeCompare(b.description)),
         };
       });
+  }
+
+  async getOwnCategoriesTree(
+    tenantId: string,
+    lang: string,
+    deleted?: boolean,
+    l1Id?: string,
+    l2Id?: string,
+    l3Id?: string,
+  ): Promise<SupplierCategoriesTree[]> {
+    const index = `productscatalog-${tenantId.toLocaleLowerCase()}-categories-current`;
+
+    const filters: Array<Record<string, any>> = [
+      { term: { "tenant_id.keyword": tenantId.toLowerCase() } },
+      { term: { "supplier_id.keyword": `${tenantId.toLowerCase()}-own` } },
+    ];
+
+    if (deleted !== undefined) {
+      filters.push({ term: { disabled: deleted } });
+    } else {
+      filters.push({ term: { disabled: false } });
+    }
+
+    if (l1Id) {
+      filters.push({ term: { "level1.keyword": l1Id } });
+    }
+    if (l2Id) {
+      filters.push({ term: { "level2.keyword": l2Id } });
+    }
+    if (l3Id) {
+      filters.push({ term: { "level3.keyword": l3Id } });
+    }
+
+    const { hits } = await this.client.search({
+      index,
+      size: 10000,
+      body: {
+        query: {
+          bool: {
+            filter: filters,
+          },
+        },
+      },
+    });
+
+    const docs = (hits.hits as Array<{ _source: OwnCategoryDoc }>).map(
+      (h) => h._source,
+    );
+
+    return this.buildOwnCategoriesTree(docs, lang);
+  }
+
+  buildOwnCategoriesTree(
+    docs: OwnCategoryDoc[],
+    lang: string,
+  ): SupplierCategoriesTree[] {
+    type BuildNode = {
+      id: string;
+      description: string;
+      children: Map<string, BuildNode>;
+    };
+
+    const getOrCreate = (
+      map: Map<string, BuildNode>,
+      id: string,
+    ): BuildNode => {
+      let node = map.get(id);
+      if (!node) {
+        node = { id, description: "", children: new Map() };
+        map.set(id, node);
+      }
+      return node;
+    };
+
+    // supplier_id is ignored on purpose: categories are the same taxonomy
+    // shared across suppliers, so rows are merged/deduped by
+    // (level1, level2, level3) id regardless of which supplier they came from.
+    const level1Map = new Map<string, BuildNode>();
+
+    for (const doc of docs) {
+      const description = doc.description?.[lang] || "";
+
+      const l1Node = getOrCreate(level1Map, doc.level1);
+      if (!doc.level2) {
+        l1Node.description = description;
+        continue;
+      }
+
+      const l2Node = getOrCreate(l1Node.children, doc.level2);
+      if (!doc.level3) {
+        l2Node.description = description;
+        continue;
+      }
+
+      const l3Node = getOrCreate(l2Node.children, doc.level3);
+      l3Node.description = description;
+    }
+
+    const toCategoryNode = (node: BuildNode): CategoryNode => {
+      const children = Array.from(node.children.values())
+        .map(toCategoryNode)
+        .sort((a, b) =>
+          (a.description || "").localeCompare(b.description || ""),
+        );
+      return {
+        id: node.id,
+        description: node.description,
+        ...(node.children.size > 0 ? { children } : {}),
+      };
+    };
+
+    return [
+      {
+        supplierId: null as unknown as string,
+        categories: Array.from(level1Map.values())
+          .map((l1) => toCategoryNode(l1))
+          .sort((a, b) =>
+            (a.description || "").localeCompare(b.description || ""),
+          ),
+      },
+    ];
   }
 }
