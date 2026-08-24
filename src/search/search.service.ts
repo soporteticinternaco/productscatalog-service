@@ -16,6 +16,13 @@ import { ElasticService } from "./elastic.service";
 
 @Injectable()
 export class SearchService {
+  // Ceiling applied to the base (pre-bonus) relevance score in
+  // `_buildSearchQuery`. Chosen well below the smallest realistic gap
+  // between adjacent function-score bonus tiers (e.g. the 1150-point
+  // "starts with query" stack: 700 prefix + 450 first-word) so base
+  // relevance can only break ties within a tier, never override tier order.
+  private static readonly BASE_RELEVANCE_CAP = 300;
+
   private client: Client;
 
   constructor(private elasticService: ElasticService) {
@@ -530,18 +537,49 @@ export class SearchService {
       return {
         function_score: {
           query: {
-            bool: {
-              should: [
-                {
-                  dis_max: {
-                    queries: mainQueries,
-                    tie_breaker: 0.1,
-                  },
+            // Base relevance is capped (see BASE_RELEVANCE_CAP) before the
+            // fixed-weight bonuses below are added, so it can only act as a
+            // fine-grained tiebreaker and can never itself decide ranking.
+            function_score: {
+              query: {
+                bool: {
+                  should: [
+                    {
+                      dis_max: {
+                        queries: mainQueries,
+                        tie_breaker: 0.1,
+                      },
+                    },
+                  ],
+                  minimum_should_match: 1,
+                  ...(needsLongWordGuard ? { must: longWordGuard } : {}),
+                  filter: filtersClause,
                 },
-              ],
-              minimum_should_match: 1,
-              ...(needsLongWordGuard ? { must: longWordGuard } : {}),
-              filter: filtersClause,
+              },
+              // Raw BM25 from the dis_max above is boost-multiplied (15-50x)
+              // and, for common single words, further inflated by query-time
+              // synonym-graph expansion (e.g. "manguera" expands into
+              // multi-word alternatives like "manguera de jardín", whose
+              // blended idf can be 30-40x a plain term's idf). Combined with
+              // BM25 length normalization, that lets a doc with a merely
+              // *shorter* description field (fewer tokens, unrelated to
+              // whether/where the query term appears) outscore a doc whose
+              // description literally *starts with* the query term by
+              // 1000+ raw points — enough to erase the entire 1150-point
+              // "starts with" bonus stack (700 + 450) below and produce
+              // exactly backwards rankings (e.g. "Chamuscador con manguera
+              // reforzada" outranking "Manguera de PVC baja presión" for
+              // query "manguera"). Capping here keeps that raw score as a
+              // tiebreaker among docs in the same bonus tier without letting
+              // it override the tier ordering itself.
+              script_score: {
+                script: {
+                  lang: "painless",
+                  source: "Math.min(_score, params.cap)",
+                  params: { cap: SearchService.BASE_RELEVANCE_CAP },
+                },
+              },
+              boost_mode: "replace" as const,
             },
           },
 
