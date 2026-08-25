@@ -1,7 +1,8 @@
-import { Controller, Get, Query, Req, Param } from "@nestjs/common";
-import { ApiQuery, ApiResponse, ApiTags, ApiParam } from "@nestjs/swagger";
+import { Controller, Get, Post, Query, Body, Req, Param } from "@nestjs/common";
+import { ApiQuery, ApiBody, ApiResponse, ApiTags, ApiParam } from "@nestjs/swagger";
 import { SearchService } from "./search.service";
 import { ProductSearchResponse } from "../dto";
+import { SearchProductsRequestDto } from "./dto/search-products-request.dto";
 import { Request } from "express";
 
 @ApiTags("Products")
@@ -56,21 +57,21 @@ export class ProductsController {
     name: "l1Id",
     type: String,
     required: false,
-    description: "Level1 cat Id",
+    description: "Comma separated Level1 cat Ids",
     example: "06",
   })
   @ApiQuery({
     name: "l2Id",
     type: String,
     required: false,
-    description: "Level2 cat Id",
+    description: "Comma separated Level2 cat Ids",
     example: "0604",
   })
   @ApiQuery({
     name: "l3Id",
     type: String,
     required: false,
-    description: "Level3 cat Id",
+    description: "Comma separated Level3 cat Ids",
     example: "060406",
   })
   @ApiQuery({
@@ -136,10 +137,78 @@ export class ProductsController {
     @Query("grouping") grouping: boolean = false,
     @Query("rate") rate?: string,
   ): Promise<ProductSearchResponse> {
-    page = Number(page) || 0;
-    size = Number(size) || 20;
-    visibility = Number(visibility) || 0;
-    const isGrouping = String(grouping) === "true";
+    return this.doSearch(req, tenantId, {
+      q,
+      lang,
+      supplierId,
+      ref,
+      ean,
+      l1Id,
+      l2Id,
+      l3Id,
+      id,
+      visibility,
+      page,
+      size,
+      sortBy,
+      type,
+      grouping,
+      rate,
+    });
+  }
+
+  @Post("products")
+  @ApiParam({ name: "tenantId", required: true, type: String })
+  @ApiBody({ type: SearchProductsRequestDto })
+  @ApiResponse({ status: 200, description: "Array of products" })
+  async searchByPost(
+    @Req() req: Request,
+    @Param("tenantId") tenantId: string,
+    @Body() body: SearchProductsRequestDto,
+  ): Promise<ProductSearchResponse> {
+    return this.doSearch(req, tenantId, body);
+  }
+
+  private async doSearch(
+    req: Request,
+    tenantId: string,
+    params: {
+      q?: string;
+      lang: string;
+      supplierId?: string;
+      ref?: string;
+      ean?: string;
+      l1Id?: string;
+      l2Id?: string;
+      l3Id?: string;
+      id?: string;
+      visibility: number;
+      page: number;
+      size: number;
+      sortBy?: string;
+      type?: string;
+      grouping: boolean;
+      rate?: string;
+    },
+  ): Promise<ProductSearchResponse> {
+    const {
+      q,
+      lang,
+      supplierId,
+      ref,
+      ean,
+      l1Id,
+      l2Id,
+      l3Id,
+      id,
+      sortBy,
+      type,
+      rate,
+    } = params;
+    const page = Number(params.page) || 0;
+    const size = Number(params.size) || 20;
+    const visibility = Number(params.visibility) || 0;
+    const isGrouping = String(params.grouping) === "true";
 
     const result = await this.searchService.search(
       lang,
@@ -206,7 +275,7 @@ export class ProductsController {
       (visibility ? `&visibility=${visibility}` : "") +
       (sortBy ? `&sortBy=${sortBy}` : "") +
       (type ? `&type=${type}` : "") +
-      (grouping ? `&grouping=${grouping}` : "") +
+      (isGrouping ? `&grouping=${isGrouping}` : "") +
       (rate ? `&rate=${rate}` : "");
 
     response.navigation = {
@@ -216,8 +285,6 @@ export class ProductsController {
       previousPage: page > 0 ? buildUrl(page - 1) : null,
       nextPage: page < lastPage - 1 ? buildUrl(page + 1) : null,
     };
-
-    //console.log("RESPONSE", JSON.stringify(response.data, null, 2));
 
     return response;
   }
@@ -255,21 +322,21 @@ export class ProductsController {
     name: "l1Id",
     type: String,
     required: false,
-    description: "Level1 cat Id",
+    description: "Comma separated Level1 cat Ids",
     example: "06",
   })
   @ApiQuery({
     name: "l2Id",
     type: String,
     required: false,
-    description: "Level2 cat Id",
+    description: "Comma separated Level2 cat Ids",
     example: "0604",
   })
   @ApiQuery({
     name: "l3Id",
     type: String,
     required: false,
-    description: "Level3 cat Id",
+    description: "Comma separated Level3 cat Ids",
     example: "060406",
   })
   @ApiQuery({
