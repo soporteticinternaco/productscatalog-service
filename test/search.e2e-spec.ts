@@ -21,6 +21,14 @@ describe('Search API (e2e)', () => {
     expect(Array.isArray(res.body.data)).toBe(true);
   });
 
+  it('POST /search/products returns 200 and an array', async () => {
+    const res = await request(app.getHttpServer())
+      .post('/tenants/elsabio/search/products')
+      .send({ q: 'test', lang: 'es' });
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.data)).toBe(true);
+  });
+
   afterAll(async () => {
     await app.close();
   });
