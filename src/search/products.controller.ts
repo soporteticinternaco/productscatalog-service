@@ -159,14 +159,30 @@ export class ProductsController {
 
   @Post("products")
   @ApiParam({ name: "tenantId", required: true, type: String })
+  @ApiQuery({
+    name: "page",
+    type: Number,
+    required: false,
+    description: "Page number",
+    example: 1,
+  })
+  @ApiQuery({
+    name: "size",
+    type: Number,
+    required: false,
+    description: "Results per page",
+    example: 10,
+  })
   @ApiBody({ type: SearchProductsRequestDto })
   @ApiResponse({ status: 200, description: "Array of products" })
   async searchByPost(
     @Req() req: Request,
     @Param("tenantId") tenantId: string,
+    @Query("page") page: number = 0,
+    @Query("size") size: number = 12,
     @Body() body: SearchProductsRequestDto,
   ): Promise<ProductSearchResponse> {
-    return this.doSearch(req, tenantId, body);
+    return this.doSearch(req, tenantId, { ...body, page, size });
   }
 
   private async doSearch(

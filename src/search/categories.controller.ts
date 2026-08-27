@@ -1,7 +1,8 @@
-import { Controller, Get, Query, Req, HttpCode, Param } from "@nestjs/common";
-import { ApiQuery, ApiTags, ApiParam } from "@nestjs/swagger";
+import { Controller, Get, Post, Query, Body, Req, HttpCode, Param } from "@nestjs/common";
+import { ApiQuery, ApiBody, ApiTags, ApiParam } from "@nestjs/swagger";
 import { SearchService } from "./search.service";
 import { GetCategoriesTreeResponse } from "../dto";
+import { CategoriesTreeRequestDto } from "./dto/categories-tree-request.dto";
 import { Request } from "express";
 
 @ApiTags("Categories")
@@ -78,16 +79,54 @@ export class CategoriesController {
     @Query("visibility") visibility: number = 0,
     @Query("deleted") deleted?: string,
   ): Promise<GetCategoriesTreeResponse> {
+    return this.doGetCategoriesTree(tenantId, {
+      lang,
+      type,
+      supplierIds,
+      l1Id: level1Id,
+      l2Id: level2Id,
+      l3Id: level3Id,
+      visibility,
+      deleted,
+    });
+  }
+
+  @Post("categories-tree")
+  @ApiParam({ name: "tenantId", required: true, type: String })
+  @ApiBody({ type: CategoriesTreeRequestDto })
+  @HttpCode(200)
+  async getCategoriesTreeByPost(
+    @Req() req: Request,
+    @Param("tenantId") tenantId: string,
+    @Body() body: CategoriesTreeRequestDto,
+  ): Promise<GetCategoriesTreeResponse> {
+    return this.doGetCategoriesTree(tenantId, body);
+  }
+
+  private async doGetCategoriesTree(
+    tenantId: string,
+    params: {
+      lang?: string;
+      type?: string;
+      supplierIds?: string;
+      l1Id?: string;
+      l2Id?: string;
+      l3Id?: string;
+      visibility?: number;
+      deleted?: string | boolean;
+    },
+  ): Promise<GetCategoriesTreeResponse> {
+    const visibility = Number(params.visibility) || 0;
     const trees = await this.searchService.getCategoriesTree(
       tenantId,
-      visibility || 0,
-      lang || "es",
-      type || "edp",
-      supplierIds,
-      deleted !== undefined ? String(deleted) === "true" : undefined,
-      level1Id,
-      level2Id,
-      level3Id,
+      visibility,
+      params.lang || "es",
+      params.type || "edp",
+      params.supplierIds,
+      params.deleted !== undefined ? String(params.deleted) === "true" : undefined,
+      params.l1Id,
+      params.l2Id,
+      params.l3Id,
     );
     return { data: trees };
   }

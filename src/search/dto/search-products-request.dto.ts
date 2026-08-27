@@ -5,7 +5,6 @@ import {
   IsInt,
   IsOptional,
   IsString,
-  Min,
 } from "class-validator";
 import { Type } from "class-transformer";
 
@@ -22,24 +21,6 @@ export class SearchProductsRequestDto {
   @IsOptional()
   @IsIn(["ca", "en", "es", "fr", "gl", "pt"])
   lang: string = "es";
-
-  @ApiPropertyOptional({ description: "Page number", example: 1, default: 0 })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  page: number = 0;
-
-  @ApiPropertyOptional({
-    description: "Results per page",
-    example: 10,
-    default: 12,
-  })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  size: number = 12;
 
   @ApiPropertyOptional({ description: "Supplier Id", example: "" })
   @IsOptional()

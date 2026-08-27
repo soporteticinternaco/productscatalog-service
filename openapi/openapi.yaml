@@ -146,6 +146,22 @@ paths:
             type: string
           required: true
           description: Tenant identifier
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          required: false
+          description: Page number for pagination (0-based)
+        - in: query
+          name: size
+          schema:
+            type: integer
+            minimum: 1
+            default: 12
+          required: false
+          description: Results per page
       requestBody:
         required: false
         content:
@@ -318,6 +334,30 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GetCategoriesTreeResponse"
+    post:
+      summary: Get categories tree for suppliers (query params passed in the request body)
+      tags:
+        - Categories
+      parameters:
+        - in: path
+          name: tenantId
+          schema:
+            type: string
+          required: true
+          description: Tenant identifier
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CategoriesTreeRequest"
+      responses:
+        "200":
+          description: Hierarchical categories tree
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetCategoriesTreeResponse"
 components:
   schemas:
     CategoryNode:
@@ -342,6 +382,42 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SupplierCategoriesTree"
+    CategoriesTreeRequest:
+      type: object
+      properties:
+        lang:
+          type: string
+          enum: [ca, en, es, fr, gl, pt]
+          default: es
+          description: Language code
+        type:
+          type: string
+          default: edp
+          description: Product type
+          example: "own"
+        supplierIds:
+          type: string
+          description: Comma separated supplier ids
+          example: "WBG,BEN"
+        l1Id:
+          type: string
+          description: Level1 cat Id
+          example: "06"
+        l2Id:
+          type: string
+          description: Level2 cat Id
+          example: "0604"
+        l3Id:
+          type: string
+          description: Level3 cat Id
+          example: "060406"
+        visibility:
+          type: integer
+          default: 0
+          description: Client visibility
+        deleted:
+          type: boolean
+          description: Include deleted products. If not set, only non-deleted are returned.
     CategoryCount:
       type: object
       properties:
@@ -437,16 +513,6 @@ components:
           enum: [ca, en, es, fr, gl, pt]
           default: es
           description: Language code to search in (defaults to 'es')
-        page:
-          type: integer
-          minimum: 0
-          default: 0
-          description: Page number for pagination (0-based)
-        size:
-          type: integer
-          minimum: 1
-          default: 12
-          description: Results per page
         supplierId:
           type: string
           description: Supplier id
