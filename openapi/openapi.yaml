@@ -70,21 +70,21 @@ paths:
           schema:
             type: string
           required: false
-          description: Level1 cat id
+          description: Comma separated Level1 cat ids
           example: "06"
         - in: query
           name: l2Id
           schema:
             type: string
           required: false
-          description: Level2 cat id
+          description: Comma separated Level2 cat ids
           example: "0604"
         - in: query
           name: l3Id
           schema:
             type: string
           required: false
-          description: Level3 cat id
+          description: Comma separated Level3 cat ids
           example: "060406"
         - in: query
           name: id
@@ -128,6 +128,46 @@ paths:
           required: false
           description: Product rate id
           example: "R1"
+      responses:
+        "200":
+          description: Matching products (full document in selected language)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductSearchResponse"
+    post:
+      summary: Search products (query params passed in the request body)
+      tags:
+        - Products
+      parameters:
+        - in: path
+          name: tenantId
+          schema:
+            type: string
+          required: true
+          description: Tenant identifier
+        - in: query
+          name: page
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+          required: false
+          description: Page number for pagination (0-based)
+        - in: query
+          name: size
+          schema:
+            type: integer
+            minimum: 1
+            default: 12
+          required: false
+          description: Results per page
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SearchProductsRequest"
       responses:
         "200":
           description: Matching products (full document in selected language)
@@ -187,21 +227,21 @@ paths:
           schema:
             type: string
           required: false
-          description: Level1 cat id
+          description: Comma separated Level1 cat ids
           example: "06"
         - in: query
           name: l2Id
           schema:
             type: string
           required: false
-          description: Level2 cat id
+          description: Comma separated Level2 cat ids
           example: "0604"
         - in: query
           name: l3Id
           schema:
             type: string
           required: false
-          description: Level3 cat id
+          description: Comma separated Level3 cat ids
           example: "060406"
         - in: query
           name: id
@@ -294,6 +334,30 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/GetCategoriesTreeResponse"
+    post:
+      summary: Get categories tree for suppliers (query params passed in the request body)
+      tags:
+        - Categories
+      parameters:
+        - in: path
+          name: tenantId
+          schema:
+            type: string
+          required: true
+          description: Tenant identifier
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CategoriesTreeRequest"
+      responses:
+        "200":
+          description: Hierarchical categories tree
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GetCategoriesTreeResponse"
 components:
   schemas:
     CategoryNode:
@@ -318,6 +382,42 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SupplierCategoriesTree"
+    CategoriesTreeRequest:
+      type: object
+      properties:
+        lang:
+          type: string
+          enum: [ca, en, es, fr, gl, pt]
+          default: es
+          description: Language code
+        type:
+          type: string
+          default: edp
+          description: Product type
+          example: "own"
+        supplierIds:
+          type: string
+          description: Comma separated supplier ids
+          example: "WBG,BEN"
+        l1Id:
+          type: string
+          description: Level1 cat Id
+          example: "06"
+        l2Id:
+          type: string
+          description: Level2 cat Id
+          example: "0604"
+        l3Id:
+          type: string
+          description: Level3 cat Id
+          example: "060406"
+        visibility:
+          type: integer
+          default: 0
+          description: Client visibility
+        deleted:
+          type: boolean
+          description: Include deleted products. If not set, only non-deleted are returned.
     CategoryCount:
       type: object
       properties:
@@ -402,6 +502,64 @@ components:
           description: When grouping is enabled, other products collapsed under the same grouping_code.
           items:
             $ref: "#/components/schemas/ProductSearchResult"
+    SearchProductsRequest:
+      type: object
+      properties:
+        q:
+          type: string
+          description: Search query
+        lang:
+          type: string
+          enum: [ca, en, es, fr, gl, pt]
+          default: es
+          description: Language code to search in (defaults to 'es')
+        supplierId:
+          type: string
+          description: Supplier id
+        ref:
+          type: string
+          description: Comma separated product refs
+          example: "462"
+        ean:
+          type: string
+          description: Comma separated product eans
+          example: "3253561801174"
+        l1Id:
+          type: string
+          description: Comma separated Level1 cat ids
+          example: "06"
+        l2Id:
+          type: string
+          description: Comma separated Level2 cat ids
+          example: "0604"
+        l3Id:
+          type: string
+          description: Comma separated Level3 cat ids
+          example: "060406"
+        id:
+          type: string
+          description: Comma separated product ids
+          example: "060406,AS234"
+        visibility:
+          type: integer
+          default: 0
+          description: Client visibility
+        sortBy:
+          type: string
+          description: Sort by field; suffix with `+`/`-` for direction (e.g. `price+`)
+          example: "price+"
+        type:
+          type: string
+          description: Product type
+          example: "own"
+        grouping:
+          type: boolean
+          default: false
+          description: Group products by grouping_code
+        rate:
+          type: string
+          description: Product rate id
+          example: "R1"
     ProductSearchResponse:
       type: object
       properties:

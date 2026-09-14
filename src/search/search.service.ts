@@ -866,13 +866,19 @@ export class SearchService {
       });
     }
     if (filters.l1Id) {
-      filterClauses.push({ term: { "level1.keyword": filters.l1Id } });
+      filterClauses.push({
+        terms: { "level1.keyword": filters.l1Id.split(",") },
+      });
     }
     if (filters.l2Id) {
-      filterClauses.push({ term: { "level2.keyword": filters.l2Id } });
+      filterClauses.push({
+        terms: { "level2.keyword": filters.l2Id.split(",") },
+      });
     }
     if (filters.l3Id) {
-      filterClauses.push({ term: { "level3.keyword": filters.l3Id } });
+      filterClauses.push({
+        terms: { "level3.keyword": filters.l3Id.split(",") },
+      });
     }
     if (filters.type) {
       filterClauses.push({ term: { type: filters.type } });
