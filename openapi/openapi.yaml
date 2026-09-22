@@ -497,11 +497,46 @@ components:
         isReplacementOf:
           type: boolean
           description: True when the search term exactly matched one of this product's deprecated `replaces` references.
+        characteristics:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductCharacteristic"
+        files:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductFile"
+        pictures:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductPicture"
         groupedItems:
           type: array
           description: When grouping is enabled, other products collapsed under the same grouping_code.
           items:
             $ref: "#/components/schemas/ProductSearchResult"
+    ProductCharacteristic:
+      type: object
+      properties:
+        name:
+          type: string
+        value:
+          type: string
+    ProductFile:
+      type: object
+      properties:
+        description:
+          type: string
+        url:
+          type: string
+    ProductPicture:
+      type: object
+      properties:
+        name:
+          type: string
+        url:
+          type: string
+        thumbnailUrl:
+          type: string
     SearchProductsRequest:
       type: object
       properties:

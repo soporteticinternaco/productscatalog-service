@@ -65,6 +65,9 @@ export class SearchService {
       "replaces",
       "main_picture_url",
       "main_picture_thumb_url",
+      "characteristics",
+      `files.${lang}`,
+      "pictures",
     ];
 
     if (filters?.type === "edp") {
@@ -112,6 +115,11 @@ export class SearchService {
           name: "grouped_items",
           size: 10,
           sort: [{ _score: "desc" }],
+          // Without this, ES defaults inner_hits to the full, unfiltered
+          // document (it does not inherit the top-level `_source` filter),
+          // leaking every internal-only field into groupedItems. Scope it
+          // to the same field list as the top-level hits.
+          _source: response_fields,
         },
       };
 
@@ -293,6 +301,34 @@ export class SearchService {
       return item;
     };
 
+    // `characteristics` is stored as a flat array tagged per-entry with
+    // `lang` (unlike description/files, it's not a {lang: value} object),
+    // so `_flattenLangFields` leaves it untouched. Filter to the requested
+    // language here and drop the now-redundant `lang` key.
+    const applyCharacteristics = (item: any, rawSrc: any) => {
+      item.characteristics = Array.isArray(rawSrc.characteristics)
+        ? rawSrc.characteristics
+            .filter((c: any) => c.lang === lang)
+            .map((c: any) => ({ name: c.name, value: c.value }))
+        : [];
+      return item;
+    };
+
+    // `pictures` is language-independent, but each entry's `thumbnail_url`
+    // key needs the same snake_case -> camelCase treatment as other fields;
+    // `_toCamelCaseFields` only renames top-level keys, not keys inside
+    // array items, so that rename is done here instead.
+    const applyPictures = (item: any, rawSrc: any) => {
+      item.pictures = Array.isArray(rawSrc.pictures)
+        ? rawSrc.pictures.map((p: any) => ({
+            name: p.name,
+            url: p.url,
+            thumbnailUrl: p.thumbnail_url,
+          }))
+        : [];
+      return item;
+    };
+
     if (hit.inner_hits && hit.inner_hits.grouped_items) {
       (flattened as any).groupedItems = hit.inner_hits.grouped_items.hits.hits
         .filter((innerHit: any) => innerHit._id !== hit._id)
@@ -303,12 +339,16 @@ export class SearchService {
           ) as any;
           applyReplacesMatch(innerFlattened, innerHit._source);
           applyRatePrice(innerFlattened, innerHit._source);
+          applyCharacteristics(innerFlattened, innerHit._source);
+          applyPictures(innerFlattened, innerHit._source);
           return this._toCamelCaseFields(innerFlattened);
         });
     }
 
     applyReplacesMatch(flattened, src);
     applyRatePrice(flattened, src);
+    applyCharacteristics(flattened, src);
+    applyPictures(flattened, src);
 
     return this._toCamelCaseFields(flattened) as ProductSearchResult;
   }

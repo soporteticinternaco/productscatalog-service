@@ -3,6 +3,10 @@
 /* tslint:disable */
 /* eslint-disable */
 
+import type { ProductCharacteristic } from './ProductCharacteristic';
+import type { ProductFile } from './ProductFile';
+import type { ProductPicture } from './ProductPicture';
+
 export type ProductSearchResult = {
     id?: string;
     ref?: string;
@@ -32,6 +36,9 @@ export type ProductSearchResult = {
      * True when the search term exactly matched one of this product's deprecated `replaces` references.
      */
     isReplacementOf?: boolean;
+    characteristics?: Array<ProductCharacteristic>;
+    files?: Array<ProductFile>;
+    pictures?: Array<ProductPicture>;
     /**
      * When grouping is enabled, other products collapsed under the same grouping_code.
      */

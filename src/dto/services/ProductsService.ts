@@ -4,6 +4,7 @@
 /* eslint-disable */
 import type { ProductSearchResponse } from '../models/ProductSearchResponse';
 import type { SearchCategoriesResponse } from '../models/SearchCategoriesResponse';
+import type { SearchProductsRequest } from '../models/SearchProductsRequest';
 
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
@@ -21,9 +22,9 @@ export class ProductsService {
      * @param supplierId Supplier id
      * @param ref Comma separated product refs
      * @param ean Comma separated product eans
-     * @param l1Id Level1 cat id
-     * @param l2Id Level2 cat id
-     * @param l3Id Level3 cat id
+     * @param l1Id Comma separated Level1 cat ids
+     * @param l2Id Comma separated Level2 cat ids
+     * @param l3Id Comma separated Level3 cat ids
      * @param id Comma separated product ids
      * @param visibility Client visibility
      * @param sortBy Sort by field; suffix with `+`/`-` for direction (e.g. `price+`)
@@ -80,6 +81,36 @@ export class ProductsService {
     }
 
     /**
+     * Search products (query params passed in the request body)
+     * @param tenantId Tenant identifier
+     * @param page Page number for pagination (0-based)
+     * @param size Results per page
+     * @param requestBody
+     * @returns ProductSearchResponse Matching products (full document in selected language)
+     * @throws ApiError
+     */
+    public static postTenantsSearchProducts(
+        tenantId: string,
+        page?: number,
+        size: number = 12,
+        requestBody?: SearchProductsRequest,
+    ): CancelablePromise<ProductSearchResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/tenants/{tenantId}/search/products',
+            path: {
+                'tenantId': tenantId,
+            },
+            query: {
+                'page': page,
+                'size': size,
+            },
+            body: requestBody,
+            mediaType: 'application/json',
+        });
+    }
+
+    /**
      * For a specific search, returns categories with each category total count. Used in category filters.
      * Returns the level1/level2/level3 category hierarchy for the given search, with a product count per level3 category.
      * @param tenantId Tenant identifier
@@ -88,9 +119,9 @@ export class ProductsService {
      * @param supplierId Supplier id
      * @param ref Comma separated product refs
      * @param ean Comma separated product eans
-     * @param l1Id Level1 cat id
-     * @param l2Id Level2 cat id
-     * @param l3Id Level3 cat id
+     * @param l1Id Comma separated Level1 cat ids
+     * @param l2Id Comma separated Level2 cat ids
+     * @param l3Id Comma separated Level3 cat ids
      * @param id Comma separated product ids
      * @param visibility Client visibility
      * @param type Product type
