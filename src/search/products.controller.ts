@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Query, Body, Req, Param } from "@nestjs/common";
+import { Controller, Get, Post, Query, Body, Req, Param, HttpCode } from "@nestjs/common";
 import { ApiQuery, ApiBody, ApiResponse, ApiTags, ApiParam } from "@nestjs/swagger";
 import { SearchService } from "./search.service";
 import { ProductSearchResponse } from "../dto";
@@ -174,6 +174,7 @@ export class ProductsController {
     example: 10,
   })
   @ApiBody({ type: SearchProductsRequestDto })
+  @HttpCode(200)
   @ApiResponse({ status: 200, description: "Array of products" })
   async searchByPost(
     @Req() req: Request,
