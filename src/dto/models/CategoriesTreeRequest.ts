@@ -17,15 +17,15 @@ export type CategoriesTreeRequest = {
      */
     supplierIds?: string;
     /**
-     * Level1 cat Id
+     * Comma separated Level1 cat ids
      */
     l1Id?: string;
     /**
-     * Level2 cat Id
+     * Comma separated Level2 cat ids
      */
     l2Id?: string;
     /**
-     * Level3 cat Id
+     * Comma separated Level3 cat ids
      */
     l3Id?: string;
     /**

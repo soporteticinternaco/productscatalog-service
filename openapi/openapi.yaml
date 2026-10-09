@@ -315,6 +315,27 @@ paths:
           description: Comma separated supplier ids
           example: "WBG,BEN"
         - in: query
+          name: l1Id
+          schema:
+            type: string
+          required: false
+          description: Comma separated Level1 cat ids
+          example: "06"
+        - in: query
+          name: l2Id
+          schema:
+            type: string
+          required: false
+          description: Comma separated Level2 cat ids
+          example: "0604"
+        - in: query
+          name: l3Id
+          schema:
+            type: string
+          required: false
+          description: Comma separated Level3 cat ids
+          example: "060406"
+        - in: query
           name: visibility
           schema:
             type: integer
@@ -401,15 +422,15 @@ components:
           example: "WBG,BEN"
         l1Id:
           type: string
-          description: Level1 cat Id
+          description: Comma separated Level1 cat ids
           example: "06"
         l2Id:
           type: string
-          description: Level2 cat Id
+          description: Comma separated Level2 cat ids
           example: "0604"
         l3Id:
           type: string
-          description: Level3 cat Id
+          description: Comma separated Level3 cat ids
           example: "060406"
         visibility:
           type: integer

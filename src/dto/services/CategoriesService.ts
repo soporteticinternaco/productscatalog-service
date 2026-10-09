@@ -18,6 +18,9 @@ export class CategoriesService {
      * @param lang Language code
      * @param type Product type
      * @param supplierIds Comma separated supplier ids
+     * @param l1Id Comma separated Level1 cat ids
+     * @param l2Id Comma separated Level2 cat ids
+     * @param l3Id Comma separated Level3 cat ids
      * @param visibility Client visibility
      * @param deleted Include deleted products. If not set, only non-deleted are returned.
      * @returns GetCategoriesTreeResponse Hierarchical categories tree
@@ -28,6 +31,9 @@ export class CategoriesService {
         lang: 'ca' | 'en' | 'es' | 'fr' | 'gl' | 'pt' = 'es',
         type: string = 'edp',
         supplierIds?: string,
+        l1Id?: string,
+        l2Id?: string,
+        l3Id?: string,
         visibility?: number,
         deleted?: boolean,
     ): CancelablePromise<GetCategoriesTreeResponse> {
@@ -41,6 +47,9 @@ export class CategoriesService {
                 'lang': lang,
                 'type': type,
                 'supplierIds': supplierIds,
+                'l1Id': l1Id,
+                'l2Id': l2Id,
+                'l3Id': l3Id,
                 'visibility': visibility,
                 'deleted': deleted,
             },
