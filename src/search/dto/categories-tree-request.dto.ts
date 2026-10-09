@@ -34,17 +34,17 @@ export class CategoriesTreeRequestDto {
   @IsString()
   supplierIds?: string;
 
-  @ApiPropertyOptional({ description: "Level1 cat Id", example: "06" })
+  @ApiPropertyOptional({ description: "Comma separated Level1 cat ids", example: "06" })
   @IsOptional()
   @IsString()
   l1Id?: string;
 
-  @ApiPropertyOptional({ description: "Level2 cat Id", example: "0604" })
+  @ApiPropertyOptional({ description: "Comma separated Level2 cat ids", example: "0604" })
   @IsOptional()
   @IsString()
   l2Id?: string;
 
-  @ApiPropertyOptional({ description: "Level3 cat Id", example: "060406" })
+  @ApiPropertyOptional({ description: "Comma separated Level3 cat ids", example: "060406" })
   @IsOptional()
   @IsString()
   l3Id?: string;

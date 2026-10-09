@@ -14,6 +14,18 @@ import {
 } from "src/dto";
 import { ElasticService } from "./elastic.service";
 
+/**
+ * `terms` filter for a comma separated id list (a single id works too).
+ * A repeated query param arrives as a real array despite the `string`
+ * contract, so accept that shape as well.
+ */
+function csvTermsFilter(field: string, value: string | string[]) {
+  const ids = (Array.isArray(value) ? value : value.split(","))
+    .map((v) => v.trim())
+    .filter((v) => v !== "");
+  return { terms: { [field]: ids } };
+}
+
 @Injectable()
 export class SearchService {
   private client: Client;
@@ -1081,13 +1093,13 @@ export class SearchService {
     }
 
     if (l1Id) {
-      filters.push({ term: { "level1.keyword": l1Id } });
+      filters.push(csvTermsFilter("level1.keyword", l1Id));
     }
     if (l2Id) {
-      filters.push({ term: { "level2.keyword": l2Id } });
+      filters.push(csvTermsFilter("level2.keyword", l2Id));
     }
     if (l3Id) {
-      filters.push({ term: { "level3.keyword": l3Id } });
+      filters.push(csvTermsFilter("level3.keyword", l3Id));
     }
 
     const { aggregations } = await this.client.search({
@@ -1218,13 +1230,13 @@ export class SearchService {
     }
 
     if (l1Id) {
-      filters.push({ term: { "level1.keyword": l1Id } });
+      filters.push(csvTermsFilter("level1.keyword", l1Id));
     }
     if (l2Id) {
-      filters.push({ term: { "level2.keyword": l2Id } });
+      filters.push(csvTermsFilter("level2.keyword", l2Id));
     }
     if (l3Id) {
-      filters.push({ term: { "level3.keyword": l3Id } });
+      filters.push(csvTermsFilter("level3.keyword", l3Id));
     }
 
     const { hits } = await this.client.search({
