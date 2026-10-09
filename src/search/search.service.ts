@@ -14,6 +14,18 @@ import {
 } from "src/dto";
 import { ElasticService } from "./elastic.service";
 
+/**
+ * `terms` filter for a comma separated id list (a single id works too).
+ * A repeated query param arrives as a real array despite the `string`
+ * contract, so accept that shape as well.
+ */
+function csvTermsFilter(field: string, value: string | string[]) {
+  const ids = (Array.isArray(value) ? value : value.split(","))
+    .map((v) => v.trim())
+    .filter((v) => v !== "");
+  return { terms: { [field]: ids } };
+}
+
 @Injectable()
 export class SearchService {
   private client: Client;
@@ -1081,13 +1093,13 @@ export class SearchService {
     }
 
     if (l1Id) {
-      filters.push({ term: { "level1.keyword": l1Id } });
+      filters.push(csvTermsFilter("level1.keyword", l1Id));
     }
     if (l2Id) {
-      filters.push({ term: { "level2.keyword": l2Id } });
+      filters.push(csvTermsFilter("level2.keyword", l2Id));
     }
     if (l3Id) {
-      filters.push({ term: { "level3.keyword": l3Id } });
+      filters.push(csvTermsFilter("level3.keyword", l3Id));
     }
 
     const { aggregations } = await this.client.search({
@@ -1209,41 +1221,79 @@ export class SearchService {
     const filters: Array<Record<string, any>> = [
       { term: { "tenant_id.keyword": tenantId.toLowerCase() } },
       { term: { "supplier_id.keyword": `${tenantId.toLowerCase()}-own` } },
+      { term: { disabled: deleted !== undefined ? deleted : false } },
     ];
 
-    if (deleted !== undefined) {
-      filters.push({ term: { disabled: deleted } });
-    } else {
-      filters.push({ term: { disabled: false } });
+    if (l1Id) {
+      filters.push(csvTermsFilter("level1.keyword", l1Id));
     }
 
-    if (l1Id) {
-      filters.push({ term: { "level1.keyword": l1Id } });
-    }
-    if (l2Id) {
-      filters.push({ term: { "level2.keyword": l2Id } });
-    }
-    if (l3Id) {
-      filters.push({ term: { "level3.keyword": l3Id } });
-    }
+    // Each row carries the name of its own level only (a level1 row has no
+    // level2 field, a level2 row no level3), so filtering on a deeper level
+    // would drop the rows that name its ancestors and leave them blank.
+    // Besides the rows matching the deepest filter, also fetch those
+    // ancestor name rows.
+    const matching: Array<Record<string, any>> = [];
+    if (l2Id) matching.push(csvTermsFilter("level2.keyword", l2Id));
+    if (l3Id) matching.push(csvTermsFilter("level3.keyword", l3Id));
+
+    const query =
+      matching.length === 0
+        ? { bool: { filter: filters } }
+        : {
+            bool: {
+              filter: filters,
+              minimum_should_match: 1,
+              should: [
+                { bool: { filter: matching } },
+                // level1 name rows
+                { bool: { must_not: [{ exists: { field: "level2.keyword" } }] } },
+                // level2 name rows, when filtering on level3
+                ...(l3Id
+                  ? [
+                      {
+                        bool: {
+                          filter: l2Id
+                            ? [csvTermsFilter("level2.keyword", l2Id)]
+                            : [],
+                          must: [{ exists: { field: "level2.keyword" } }],
+                          must_not: [{ exists: { field: "level3.keyword" } }],
+                        },
+                      },
+                    ]
+                  : []),
+              ],
+            },
+          };
 
     const { hits } = await this.client.search({
       index,
       size: 10000,
-      body: {
-        query: {
-          bool: {
-            filter: filters,
-          },
-        },
-      },
+      body: { query },
     });
 
     const docs = (hits.hits as Array<{ _source: OwnCategoryDoc }>).map(
       (h) => h._source,
     );
 
-    return this.buildOwnCategoriesTree(docs, lang);
+    const trees = this.buildOwnCategoriesTree(docs, lang);
+    if (matching.length === 0) {
+      return trees;
+    }
+
+    // Ancestors only fetched for their names must not show up on their own:
+    // keep the branches that reach the deepest filtered level.
+    const depth = l3Id ? 3 : 2;
+    const prune = (nodes: CategoryNode[], level: number): CategoryNode[] =>
+      level >= depth
+        ? nodes
+        : nodes
+            .map((n) => ({ ...n, children: prune(n.children ?? [], level + 1) }))
+            .filter((n) => n.children.length > 0);
+    return trees.map((t) => ({
+      ...t,
+      categories: prune(t.categories ?? [], 1),
+    }));
   }
 
   buildOwnCategoriesTree(

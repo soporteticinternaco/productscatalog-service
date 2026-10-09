@@ -35,21 +35,21 @@ export class CategoriesController {
     name: "l1Id",
     type: String,
     required: false,
-    description: "Level1 cat Id",
+    description: "Comma separated Level1 cat ids",
     example: "06",
   })
   @ApiQuery({
     name: "l2Id",
     type: String,
     required: false,
-    description: "Level2 cat Id",
+    description: "Comma separated Level2 cat ids",
     example: "0604",
   })
   @ApiQuery({
     name: "l3Id",
     type: String,
     required: false,
-    description: "Level3 cat Id",
+    description: "Comma separated Level3 cat ids",
     example: "060406",
   })
   @ApiQuery({
