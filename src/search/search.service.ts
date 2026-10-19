@@ -1050,6 +1050,51 @@ export class SearchService {
     return flatten(source);
   }
 
+  /**
+   * Number of non-deleted products per supplier. Suppliers without products
+   * are not returned.
+   */
+  async countProductsBySupplier(
+    tenantId: string,
+    visibility: number,
+    type: string,
+    supplierIds?: string,
+  ): Promise<Array<{ supplierId: string; count: number }>> {
+    const index = `productscatalog-${tenantId.toLowerCase()}-products-current`;
+
+    const filters = this._buildFilters({ tenantId, visibility, type });
+
+    const supplierIdList = supplierIds
+      ? (Array.isArray(supplierIds) ? supplierIds : supplierIds.split(","))
+          .map((id) => id.trim())
+          .filter((id) => id.length > 0)
+      : [];
+    if (supplierIdList.length > 0) {
+      filters.push({ terms: { "supplier_id.keyword": supplierIdList } });
+    }
+
+    const { aggregations } = await this.client.search({
+      index,
+      size: 0,
+      body: {
+        query: { bool: { filter: filters } },
+        aggs: {
+          suppliers: {
+            terms: {
+              field: "supplier_id.keyword",
+              size: supplierIdList.length || 10000,
+            },
+          },
+        },
+      },
+    });
+
+    const buckets: Array<{ key: string; doc_count: number }> =
+      (aggregations as any)?.suppliers?.buckets || [];
+
+    return buckets.map((b) => ({ supplierId: b.key, count: b.doc_count }));
+  }
+
   async getCategoriesTree(
     tenantId: string,
     visibility: number,

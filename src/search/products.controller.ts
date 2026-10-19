@@ -306,6 +306,50 @@ export class ProductsController {
     return response;
   }
 
+  @Get("suppliers/products-count")
+  @ApiParam({ name: "tenantId", required: true, type: String })
+  @ApiQuery({
+    name: "supplierIds",
+    type: String,
+    required: false,
+    description:
+      "Comma separated supplier ids. If not set, all suppliers with products are returned",
+    example: "WBG,BEN",
+  })
+  @ApiQuery({
+    name: "visibility",
+    type: Number,
+    required: false,
+    description: "Client visibility",
+    example: 0,
+  })
+  @ApiQuery({
+    name: "type",
+    type: String,
+    required: false,
+    description: "Product type",
+    example: "edp",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Number of non-deleted products per supplier",
+  })
+  async countProductsBySupplier(
+    @Param("tenantId") tenantId: string,
+    @Query("supplierIds") supplierIds?: string,
+    @Query("visibility") visibility: number = 0,
+    @Query("type") type: string = "edp",
+  ): Promise<{ data: Array<{ supplierId: string; count: number }> }> {
+    const data = await this.searchService.countProductsBySupplier(
+      tenantId,
+      Number(visibility) || 0,
+      type,
+      supplierIds,
+    );
+
+    return { data };
+  }
+
   @Get("categories")
   @ApiParam({ name: "tenantId", required: true, type: String })
   @ApiQuery({ name: "q", required: false })

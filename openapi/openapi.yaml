@@ -278,6 +278,58 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SearchCategoriesResponse"
+  /tenants/{tenantId}/search/suppliers/products-count:
+    get:
+      summary: Returns the number of non-deleted products of each supplier.
+      description: Suppliers without products are not returned.
+      tags:
+        - Products
+      parameters:
+        - in: path
+          name: tenantId
+          schema:
+            type: string
+          required: true
+          description: Tenant identifier
+        - in: query
+          name: supplierIds
+          schema:
+            type: string
+          required: false
+          description: Comma separated supplier ids. If not set, all suppliers with products are returned
+          example: "WBG,BEN"
+        - in: query
+          name: visibility
+          schema:
+            type: integer
+            default: 0
+          required: false
+          description: Client visibility
+        - in: query
+          name: type
+          schema:
+            type: string
+            default: edp
+          required: false
+          description: Product type
+          example: "edp"
+      responses:
+        "200":
+          description: Product count per supplier
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        supplierId:
+                          type: string
+                        count:
+                          type: integer
   /tenants/{tenantId}/categories-tree:
     get:
       summary: Get categories tree for suppliers
